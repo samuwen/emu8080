@@ -1,0 +1,1 @@
+This is an Intel 8080 emulator built in rust. I'm still learning the language so uh, don't expect it to be good.
