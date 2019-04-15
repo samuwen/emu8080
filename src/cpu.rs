@@ -300,21 +300,10 @@ impl Cpu {
                 op.operation_name = String::from("ANA");
                 self.ana_operation(op.operation_register);
             }
-            // 0xA1 => debug!("{:x} ANA   C", self.registers.pc),
-            // 0xA2 => debug!("{:x} ANA   D", self.registers.pc),
-            // 0xA3 => debug!("{:x} ANA   E", self.registers.pc),
-            // 0xA4 => debug!("{:x} ANA   H", self.registers.pc),
-            // 0xA5 => debug!("{:x} ANA   L", self.registers.pc),
-            // 0xA6 => debug!("{:x} ANA   M", self.registers.pc),
-            // 0xA7 => debug!("{:x} ANA   A", self.registers.pc),
-            // 0xA8 => debug!("{:x} XRA   B", self.registers.pc),
-            // 0xA9 => debug!("{:x} XRA   C", self.registers.pc),
-            // 0xAA => debug!("{:x} XRA   D", self.registers.pc),
-            // 0xAB => debug!("{:x} XRA   E", self.registers.pc),
-            // 0xAC => debug!("{:x} XRA   H", self.registers.pc),
-            // 0xAD => debug!("{:x} XRA   L", self.registers.pc),
-            // 0xAE => debug!("{:x} XRA   M", self.registers.pc),
-            // 0xAF => debug!("{:x} XRA   A", self.registers.pc),
+            0xA8...0xAF => {
+                op.operation_name = String::from("XRA");
+                self.xra_operation(op.operation_register);
+            }
             // 0xB0 => debug!("{:x} ORA   B", self.registers.pc),
             // 0xB1 => debug!("{:x} ORA   C", self.registers.pc),
             // 0xB2 => debug!("{:x} ORA   D", self.registers.pc),
@@ -657,8 +646,18 @@ impl Cpu {
     }
 
     fn ana_operation(&mut self, register: String) {
-        let result = self.registers.get_value("A") & self.registers.get_value(&register);
-        self.set_flags(&result, false, (false, false));
+        let register_value = self.get_register_value(&register);
+        let result = self.registers.get_value("A") & register_value;
+        let (b1, b2) = self.get_b3_vals(&register_value);
+        self.set_flags(&result, false, (b1, b2));
+        self.registers.set_value("A", result);
+    }
+
+    fn xra_operation(&mut self, register: String) {
+        let register_value = self.get_register_value(&register);
+        let result = self.registers.get_value("A") ^ register_value;
+        let (b1, b2) = self.get_b3_vals(&register_value);
+        self.set_flags(&result, false, (b1, b2));
         self.registers.set_value("A", result);
     }
 
@@ -966,6 +965,22 @@ mod tests {
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0xA3;
         cpu.registers.set_value("E", reg_val);
+        cpu.registers.set_value("A", acc_val);
+        cpu.execute_opcode();
+
+        assert_eq!(cpu.registers.get_value("A"), result);
+    }
+
+    #[test]
+    fn test_opcode_aa_xra_d() {
+        let mut cpu = Cpu::new_and_init();
+        let reg_val = get_random_number(0xFF) as u8;
+        let acc_val = get_random_number(0xFF) as u8;
+        let pc = get_random_number(0xFFFF);
+        let result = reg_val ^ acc_val;
+        cpu.registers.pc = pc;
+        cpu.memory.ram[pc as usize] = 0xAA;
+        cpu.registers.set_value("D", reg_val);
         cpu.registers.set_value("A", acc_val);
         cpu.execute_opcode();
 
