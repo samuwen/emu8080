@@ -25,13 +25,7 @@ impl Cpu {
         Cpu {
             registers: Registers {
                 pc: 0,
-                a: 0,
-                b: 0,
-                c: 0,
-                d: 0,
-                e: 0,
-                h: 0,
-                l: 0,
+                register: [0u8; 7],
             },
             memory: Memory { ram: [0; 0xFFFF] },
             // stack: Stack {
@@ -55,40 +49,38 @@ impl Cpu {
     }
 
     pub fn execute_opcode(&mut self) {
-        let opcode = self.memory.ram[self.registers.pc as usize];
-        self.registers.pc += 1;
-        let pc_ref = &(self.registers.pc - 1);
-        let extra_byte = |val| self.memory.ram[(pc_ref + val) as usize];
-        let two_byte = || (extra_byte(2), extra_byte(1));
-        let one_byte = || (0, extra_byte(1));
         let mut op = Opcode::new();
-        op.op = opcode;
-        match opcode {
+        op.code = self.memory.ram[self.registers.pc as usize];
+        op.set_operation_register();
+        op.assc_bytes = (
+            self.memory.ram[(self.registers.pc + 2) as usize],
+            self.memory.ram[(self.registers.pc + 1) as usize],
+        );
+        self.registers.pc += 1;
+        match op.code {
             0x00 => {
-                op.name = String::from("NOP");
+                op.operation_name = String::from("NOP");
             }
             0x01 => {
-                op.name = String::from("LXI B");
-                op.assc_bytes = two_byte();
-                self.registers.b = op.assc_bytes.0;
-                self.registers.c = op.assc_bytes.1;
+                op.operation_name = String::from("LXI");
+                self.registers.set_value("B", op.assc_bytes.0);
+                self.registers.set_value("C", op.assc_bytes.1);
                 self.registers.pc += 2;
             }
             0x02 => {
-                op.name = String::from("STAX B");
+                op.operation_name = String::from("STAX B");
             }
             0x03 => {
-                op.name = String::from("INX B");
+                op.operation_name = String::from("INX B");
             }
             0x04 => {
-                op.name = String::from("INR B");
+                op.operation_name = String::from("INR B");
             }
             0x05 => {
-                op.name = String::from("DCR B");
+                op.operation_name = String::from("DCR B");
             }
             0x06 => {
-                op.name = String::from("MVI B");
-                one_byte();
+                op.operation_name = String::from("MVI B");
             }
             // 0x07 => debug!("{:x} RLC", self.registers.pc),
             // 0x08 => debug!("{:x} NOP", self.registers.pc),
@@ -289,143 +281,24 @@ impl Cpu {
             // 0x7E => debug!("{:x} MOV A,M", self.registers.pc),
             // 0x7F => debug!("{:x} MOV A,A", self.registers.pc),
             0x80...0x87 => {
-                let addr = self.get_addr(&opcode);
-                let mut o_str: String = "ADD ".to_owned();
-                o_str.push_str(addr.0);
-                op.name = o_str;
-                self.add_operation(addr.1);
+                op.operation_name = String::from("ADD");
+                self.add_operation(op.operation_register);
             }
-            0x88 => {
-                op.name = String::from("ADC B");
-                self.adc_operation(self.registers.b);
+            0x88...0x8F => {
+                op.operation_name = String::from("ADC");
+                self.adc_operation(op.operation_register);
             }
-            0x89 => {
-                op.name = String::from("ADC C");
-                self.adc_operation(self.registers.c);
+            0x90...0x97 => {
+                op.operation_name = String::from("SUB");;
+                self.sub_operation(op.operation_register);
             }
-            0x8A => {
-                op.name = String::from("ADC D");
-                self.adc_operation(self.registers.d);
+            0x98...0x9F => {
+                op.operation_name = String::from("SBB");
+                self.sbb_operation(op.operation_register);
             }
-            0x8B => {
-                op.name = String::from("ADC E");
-                self.adc_operation(self.registers.e);
-            }
-            0x8C => {
-                op.name = String::from("ADC H");
-                self.adc_operation(self.registers.h);
-            }
-            0x8D => {
-                op.name = String::from("ADC L");
-                self.adc_operation(self.registers.l);
-            }
-            0x8E => {
-                op.name = String::from("ADC M");
-                let memory_reference = self.get_memory_reference();
-                self.adc_operation(self.memory.ram[memory_reference as usize]);
-            }
-            0x8F => {
-                op.name = String::from("ADC A");
-                self.adc_operation(self.registers.a);
-            }
-            0x90 => {
-                op.name = String::from("SUB B");
-                self.sub_operation(self.registers.b);
-            }
-            0x91 => {
-                op.name = String::from("SUB C");
-                self.sub_operation(self.registers.c);
-            }
-            0x92 => {
-                op.name = String::from("SUB D");
-                self.sub_operation(self.registers.d);
-            }
-            0x93 => {
-                op.name = String::from("SUB E");
-                self.sub_operation(self.registers.e);
-            }
-            0x94 => {
-                op.name = String::from("SUB H");
-                self.sub_operation(self.registers.h);
-            }
-            0x95 => {
-                op.name = String::from("SUB L");
-                self.sub_operation(self.registers.l);
-            }
-            0x96 => {
-                op.name = String::from("SUB M");
-                let mem_ref = (self.registers.h as u16) << 8 | self.registers.l as u16;
-                self.sub_operation(self.memory.ram[mem_ref as usize]);
-            }
-            0x97 => {
-                op.name = String::from("SUB A");
-                self.sub_operation(self.registers.a);
-            }
-            0x98 => {
-                op.name = String::from("SBB B");
-                self.sbb_operation(self.registers.b);
-            }
-            0x99 => {
-                op.name = String::from("SBB C");
-                self.sbb_operation(self.registers.c);
-            }
-            0x9A => {
-                op.name = String::from("SBB D");
-                self.sbb_operation(self.registers.d);
-            }
-            0x9B => {
-                op.name = String::from("SBB E");
-                self.sbb_operation(self.registers.e);
-            }
-            0x9C => {
-                op.name = String::from("SBB H");
-                self.sbb_operation(self.registers.h);
-            }
-            0x9D => {
-                op.name = String::from("SBB L");
-                self.sbb_operation(self.registers.l);
-            }
-            0x9E => {
-                op.name = String::from("SBB M");
-                let mem_ref = (self.registers.h as u16) << 8 | self.registers.l as u16;
-                self.sbb_operation(self.memory.ram[mem_ref as usize]);
-            }
-            0x9F => {
-                op.name = String::from("SBB A");
-                self.sbb_operation(self.registers.a);
-            }
-            0xA0 => {
-                op.name = String::from("ANA B");
-                self.ana_operation(self.registers.b);
-            }
-            0xA1 => {
-                op.name = String::from("ANA C");
-                self.ana_operation(self.registers.c);
-            }
-            0xA2 => {
-                op.name = String::from("ANA D");
-                self.ana_operation(self.registers.d);
-            }
-            0xA3 => {
-                op.name = String::from("ANA E");
-                self.ana_operation(self.registers.e);
-            }
-            0xA4 => {
-                op.name = String::from("ANA H");
-                self.ana_operation(self.registers.h);
-            }
-            0xA5 => {
-                op.name = String::from("ANA L");
-                self.ana_operation(self.registers.l);
-            }
-            0xA6 => {
-                op.name = String::from("ANA M");
-                let mem_ref = (self.registers.h as u16) << 8 | self.registers.l as u16;
-                self.ana_operation(self.memory.ram[mem_ref as usize]);
-            }
-            0xA7 => {
-                op.name = String::from("ANA A");
-                self.ana_operation(self.registers.a);
+            0xA0...0xA7 => {
+                op.operation_name = String::from("ANA");
+                self.ana_operation(op.operation_register);
             }
             // 0xA1 => debug!("{:x} ANA   C", self.registers.pc),
             // 0xA2 => debug!("{:x} ANA   D", self.registers.pc),
@@ -470,8 +343,7 @@ impl Cpu {
             //     self.registers.pc += 2
             // }
             0xC3 => {
-                op.name = String::from("JMP");
-                op.assc_bytes = two_byte();
+                op.operation_name = String::from("JMP");
                 self.registers.pc = ((op.assc_bytes.0 as u16) << 8 as u16) + op.assc_bytes.1 as u16;
             }
             // 0xC4 => {
@@ -484,7 +356,7 @@ impl Cpu {
             //     self.registers.pc += 2
             // }
             0xC5 => {
-                op.name = String::from("PUSH B");
+                op.operation_name = String::from("PUSH");
             }
             // 0xC6 => {
             //     debug!("{:x} ADI  D8, {:x}", self.registers.pc, self.extra_byte(1));
@@ -543,8 +415,7 @@ impl Cpu {
             //     self.registers.pc += 2
             // }
             0xD5 => {
-                op.name = String::from("PUSH D");
-                debug!("{:?}", op);
+                op.operation_name = String::from("PUSH");
             }
             // 0xD6 => {
             //     debug!("{:x} SUI  D8, {:x}", self.registers.pc, self.extra_byte(1));
@@ -603,8 +474,7 @@ impl Cpu {
             //     self.registers.pc += 2
             // }
             0xE5 => {
-                op.name = String::from("PUSH H");
-                debug!("{:?}", op);
+                op.operation_name = String::from("PUSH");
             }
             // 0xE6 => {
             //     debug!("{:x} ANI  D8, {:x}", self.registers.pc, self.extra_byte(1));
@@ -660,8 +530,7 @@ impl Cpu {
             //     self.registers.pc += 2
             // }
             0xF5 => {
-                op.name = String::from("PUSH PSW");
-                debug!("{:?}", op);
+                op.operation_name = String::from("PUSH PSW");
             }
             // 0xF6 => {
             //     debug!("{:x} ORI  D8, {:x}", self.registers.pc, self.extra_byte(1));
@@ -696,10 +565,9 @@ impl Cpu {
             // }
             // 0xFF => debug!("{:x} RST   7", self.registers.pc),
             _ => {
-                op.name = String::from("NYI");
+                op.operation_name = String::from("NYI");
             }
         }
-        debug!("{:?}", op);
     }
 
     #[inline]
@@ -736,7 +604,7 @@ impl Cpu {
 
     #[inline]
     fn get_b3_vals(&mut self, register: &u8) -> (bool, bool) {
-        let a_val = self.registers.a;
+        let a_val = self.registers.get_value("A");
         let b3_1 = self.is_b3_set(&a_val);
         let b3_2 = self.is_b3_set(&register);
         (b3_1, b3_2)
@@ -747,66 +615,65 @@ impl Cpu {
         (*val & 0x8) == 0x8
     }
 
-    fn get_addr(&mut self, opcode: &u8) -> (&str, u8) {
-        match opcode % 7 {
-            0 => ("B", self.registers.b),
-            1 => ("C", self.registers.c),
-            2 => ("D", self.registers.d),
-            3 => ("E", self.registers.e),
-            4 => ("H", self.registers.h),
-            5 => ("L", self.registers.l),
-            6 => {
-                let mem_ref = (self.registers.h as u16) << 8 | self.registers.l as u16;
-                ("M", self.memory.ram[mem_ref as usize])
-            }
-            7 => ("A", self.registers.a),
-            _ => panic!("Super duper fucked opcode {}", opcode),
-        }
-    }
-
-    fn adc_operation(&mut self, register: u8) {
+    fn adc_operation(&mut self, register: String) {
         let flag_set = if self.flags.cy { true } else { false };
         self.add_operation(register);
         if flag_set {
-            let result = self.registers.a.wrapping_add(1);
-            self.registers.a = result;
+            let result = self.registers.get_value("A").wrapping_add(1);
+            self.registers.set_value("A", result);
         }
     }
 
-    fn add_operation(&mut self, register: u8) {
-        let (result, overflow) = self.registers.a.overflowing_add(register);
-        let (b1, b2) = self.get_b3_vals(&register);
+    fn add_operation(&mut self, register: String) {
+        let register_value = self.get_register_value(&register);
+        let (result, overflow) = self
+            .registers
+            .get_value("A")
+            .overflowing_add(register_value);
+        let (b1, b2) = self.get_b3_vals(&register_value);
 
         self.set_flags(&result, overflow, (b1, b2));
-        self.registers.a = result;
+        self.registers.set_value("A", result);
     }
 
-    fn sbb_operation(&mut self, register: u8) {
-        let val = if self.flags.cy {
-            register + 1
-        } else {
-            register
-        };
-        self.sub_operation(val);
+    fn sbb_operation(&mut self, register: String) {
+        let register_value = self.get_register_value(&register);
+        if self.flags.cy {
+            self.registers.set_value(&register, register_value + 1)
+        }
+        self.sub_operation(register);
     }
 
-    fn sub_operation(&mut self, register: u8) {
-        let (result, overflow) = self.registers.a.overflowing_sub(register);
-        let (b1, b2) = self.get_b3_vals(&register);
+    fn sub_operation(&mut self, register: String) {
+        let register_value = self.get_register_value(&register);
+        let (result, overflow) = self
+            .registers
+            .get_value("A")
+            .overflowing_sub(register_value);
+        let (b1, b2) = self.get_b3_vals(&register_value);
 
         self.set_flags(&result, overflow, (b1, b2));
-        self.registers.a = result;
+        self.registers.set_value("A", result);
     }
 
-    fn ana_operation(&mut self, register: u8) {
-        let result = self.registers.a & register;
+    fn ana_operation(&mut self, register: String) {
+        let result = self.registers.get_value("A") & self.registers.get_value(&register);
         self.set_flags(&result, false, (false, false));
-        self.registers.a = result;
+        self.registers.set_value("A", result);
+    }
+
+    fn get_register_value(&mut self, register: &String) -> u8 {
+        let mem_ref = self.get_memory_reference();
+        if register == "M" {
+            return self.memory.ram[mem_ref as usize];
+        } else {
+            return self.registers.get_value(register);
+        }
     }
 
     fn get_memory_reference(&mut self) -> u16 {
-        let h = self.registers.h as u16;
-        h << 8 | self.registers.l as u16
+        let h = self.registers.get_value("H") as u16;
+        h << 8 | self.registers.get_value("L") as u16
     }
 }
 
@@ -924,7 +791,7 @@ mod tests {
         let mut cpu = Cpu::new_and_init();
         let v1: u8 = get_random_number(0xFF) as u8;
         let v2: u8 = get_random_number(0xFF) as u8;
-        cpu.registers.a = v1;
+        cpu.registers.set_value("A", v1);
         let (b1, b2) = cpu.get_b3_vals(&v2);
         let (result, overflow) = v1.overflowing_add(v2);
         cpu.set_flags(&result, overflow, (b1, b2));
@@ -955,9 +822,10 @@ mod tests {
     fn test_add_operation() {
         let mut cpu = Cpu::new_and_init();
         let val = get_random_number(0xFF) as u8;
-        cpu.add_operation(val);
+        cpu.registers.set_value("B", val);
+        cpu.add_operation(String::from("B"));
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -978,8 +846,8 @@ mod tests {
         cpu.memory.ram[0x2] = val2;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.b, val2);
-        assert_eq!(cpu.registers.c, val1);
+        assert_eq!(cpu.registers.get_value("B"), val2);
+        assert_eq!(cpu.registers.get_value("C"), val1);
     }
 
     #[test]
@@ -989,10 +857,10 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x80;
-        cpu.registers.b = val;
+        cpu.registers.set_value("B", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -1002,10 +870,10 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x81;
-        cpu.registers.c = val;
+        cpu.registers.set_value("C", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -1015,10 +883,10 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x82;
-        cpu.registers.d = val;
+        cpu.registers.set_value("D", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -1028,10 +896,10 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x83;
-        cpu.registers.e = val;
+        cpu.registers.set_value("E", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -1041,10 +909,10 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x84;
-        cpu.registers.h = val;
+        cpu.registers.set_value("H", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -1054,10 +922,10 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x85;
-        cpu.registers.l = val;
+        cpu.registers.set_value("L", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -1071,7 +939,7 @@ mod tests {
         cpu.memory.ram[mem_ref as usize] = val;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -1081,11 +949,11 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x87;
-        cpu.registers.a = val;
+        cpu.registers.set_value("A", val);
         cpu.execute_opcode();
         let (result, _) = val.overflowing_mul(2);
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1095,11 +963,11 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x88;
-        cpu.registers.b = val;
+        cpu.registers.set_value("B", val);
         cpu.flags.cy = false;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -1109,11 +977,11 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x88;
-        cpu.registers.b = val;
+        cpu.registers.set_value("B", val);
         cpu.flags.cy = true;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val + 1);
+        assert_eq!(cpu.registers.get_value("A"), val + 1);
     }
 
     #[test]
@@ -1123,11 +991,11 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x89;
-        cpu.registers.c = val;
+        cpu.registers.set_value("C", val);
         cpu.flags.cy = false;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -1137,11 +1005,11 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x89;
-        cpu.registers.c = val;
+        cpu.registers.set_value("C", val);
         cpu.flags.cy = true;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val + 1);
+        assert_eq!(cpu.registers.get_value("A"), val + 1);
     }
 
     #[test]
@@ -1151,11 +1019,11 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x8A;
-        cpu.registers.d = val;
+        cpu.registers.set_value("D", val);
         cpu.flags.cy = false;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -1165,11 +1033,11 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x8A;
-        cpu.registers.d = val;
+        cpu.registers.set_value("D", val);
         cpu.flags.cy = true;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val + 1);
+        assert_eq!(cpu.registers.get_value("A"), val + 1);
     }
 
     #[test]
@@ -1179,11 +1047,11 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x8B;
-        cpu.registers.e = val;
+        cpu.registers.set_value("E", val);
         cpu.flags.cy = false;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -1193,11 +1061,11 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x8B;
-        cpu.registers.e = val;
+        cpu.registers.set_value("E", val);
         cpu.flags.cy = true;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val + 1);
+        assert_eq!(cpu.registers.get_value("A"), val + 1);
     }
 
     #[test]
@@ -1207,11 +1075,11 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x8C;
-        cpu.registers.h = val;
+        cpu.registers.set_value("H", val);
         cpu.flags.cy = false;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -1221,11 +1089,11 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x8C;
-        cpu.registers.h = val;
+        cpu.registers.set_value("H", val);
         cpu.flags.cy = true;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val + 1);
+        assert_eq!(cpu.registers.get_value("A"), val + 1);
     }
 
     #[test]
@@ -1235,11 +1103,11 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x8D;
-        cpu.registers.l = val;
+        cpu.registers.set_value("L", val);
         cpu.flags.cy = false;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -1249,11 +1117,11 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x8D;
-        cpu.registers.l = val;
+        cpu.registers.set_value("L", val);
         cpu.flags.cy = true;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val + 1);
+        assert_eq!(cpu.registers.get_value("A"), val + 1);
     }
 
     #[test]
@@ -1268,7 +1136,7 @@ mod tests {
         cpu.flags.cy = false;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val);
+        assert_eq!(cpu.registers.get_value("A"), val);
     }
 
     #[test]
@@ -1283,7 +1151,7 @@ mod tests {
         cpu.flags.cy = true;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, val + 1);
+        assert_eq!(cpu.registers.get_value("A"), val + 1);
     }
 
     #[test]
@@ -1293,12 +1161,12 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x8F;
-        cpu.registers.a = val;
+        cpu.registers.set_value("A", val);
         cpu.flags.cy = false;
         cpu.execute_opcode();
 
         let result = val.wrapping_mul(2);
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1308,12 +1176,12 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x8F;
-        cpu.registers.a = val;
+        cpu.registers.set_value("A", val);
         cpu.flags.cy = true;
         cpu.execute_opcode();
 
         let result = val.wrapping_mul(2);
-        assert_eq!(cpu.registers.a, result + 1);
+        assert_eq!(cpu.registers.get_value("A"), result + 1);
     }
 
     #[test]
@@ -1325,11 +1193,11 @@ mod tests {
         let result = base - val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x90;
-        cpu.registers.a = base;
-        cpu.registers.b = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("B", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1341,11 +1209,11 @@ mod tests {
         let result = base.wrapping_sub(val);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x90;
-        cpu.registers.a = base;
-        cpu.registers.b = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("B", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1357,11 +1225,11 @@ mod tests {
         let result = base - val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x91;
-        cpu.registers.a = base;
-        cpu.registers.c = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("C", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1373,11 +1241,11 @@ mod tests {
         let result = base.wrapping_sub(val);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x91;
-        cpu.registers.a = base;
-        cpu.registers.c = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("C", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1389,11 +1257,11 @@ mod tests {
         let result = base - val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x92;
-        cpu.registers.a = base;
-        cpu.registers.d = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("D", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1405,11 +1273,11 @@ mod tests {
         let result = base.wrapping_sub(val);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x92;
-        cpu.registers.a = base;
-        cpu.registers.d = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("D", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1421,11 +1289,11 @@ mod tests {
         let result = base - val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x93;
-        cpu.registers.a = base;
-        cpu.registers.e = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("E", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1437,11 +1305,11 @@ mod tests {
         let result = base.wrapping_sub(val);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x93;
-        cpu.registers.a = base;
-        cpu.registers.e = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("E", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1453,11 +1321,11 @@ mod tests {
         let result = base - val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x94;
-        cpu.registers.a = base;
-        cpu.registers.h = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("H", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1469,11 +1337,11 @@ mod tests {
         let result = base.wrapping_sub(val);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x94;
-        cpu.registers.a = base;
-        cpu.registers.h = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("H", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1485,27 +1353,11 @@ mod tests {
         let result = base - val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x95;
-        cpu.registers.a = base;
-        cpu.registers.l = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("L", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
-    }
-
-    #[test]
-    fn test_opcode_95_sub_l_with_borrow() {
-        let mut cpu = Cpu::new_and_init();
-        let val = get_random_number(0xFF) as u8;
-        let base: u8 = 0x0;
-        let pc = get_random_number(0xFFFF);
-        let result = base.wrapping_sub(val);
-        cpu.registers.pc = pc;
-        cpu.memory.ram[pc as usize] = 0x95;
-        cpu.registers.a = base;
-        cpu.registers.l = val;
-        cpu.execute_opcode();
-
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1520,12 +1372,12 @@ mod tests {
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x96;
         cpu.memory.ram[((val1 as u16) << 8 | val2 as u16) as usize] = val;
-        cpu.registers.a = base;
-        cpu.registers.h = val1;
-        cpu.registers.l = val2;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("H", val1);
+        cpu.registers.set_value("L", val2);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1540,12 +1392,12 @@ mod tests {
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x96;
         cpu.memory.ram[((val1 as u16) << 8 | val2 as u16) as usize] = val;
-        cpu.registers.a = base;
-        cpu.registers.h = val1;
-        cpu.registers.l = val2;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("H", val1);
+        cpu.registers.set_value("L", val2);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1555,10 +1407,10 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x97;
-        cpu.registers.a = val;
+        cpu.registers.set_value("A", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, 0);
+        assert_eq!(cpu.registers.get_value("A"), 0);
     }
 
     #[test]
@@ -1568,10 +1420,10 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x97;
-        cpu.registers.a = val;
+        cpu.registers.set_value("A", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, 0);
+        assert_eq!(cpu.registers.get_value("A"), 0);
     }
 
     #[test]
@@ -1584,11 +1436,11 @@ mod tests {
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x98;
         cpu.flags.cy = false;
-        cpu.registers.a = base;
-        cpu.registers.b = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("B", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1601,11 +1453,11 @@ mod tests {
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x98;
         cpu.flags.cy = true;
-        cpu.registers.a = base;
-        cpu.registers.b = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("B", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1617,11 +1469,11 @@ mod tests {
         let result = base - val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x99;
-        cpu.registers.a = base;
-        cpu.registers.c = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("C", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1633,11 +1485,11 @@ mod tests {
         let result = base.wrapping_sub(val);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x99;
-        cpu.registers.a = base;
-        cpu.registers.c = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("C", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1649,11 +1501,11 @@ mod tests {
         let result = base - val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x92;
-        cpu.registers.a = base;
-        cpu.registers.d = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("D", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1665,11 +1517,11 @@ mod tests {
         let result = base.wrapping_sub(val);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x92;
-        cpu.registers.a = base;
-        cpu.registers.d = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("D", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1681,11 +1533,11 @@ mod tests {
         let result = base - val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x93;
-        cpu.registers.a = base;
-        cpu.registers.e = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("E", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1697,11 +1549,11 @@ mod tests {
         let result = base.wrapping_sub(val);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x93;
-        cpu.registers.a = base;
-        cpu.registers.e = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("E", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1713,11 +1565,11 @@ mod tests {
         let result = base - val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x94;
-        cpu.registers.a = base;
-        cpu.registers.h = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("H", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1729,11 +1581,11 @@ mod tests {
         let result = base.wrapping_sub(val);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x94;
-        cpu.registers.a = base;
-        cpu.registers.h = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("H", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1745,11 +1597,11 @@ mod tests {
         let result = base - val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x95;
-        cpu.registers.a = base;
-        cpu.registers.l = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("L", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1761,11 +1613,11 @@ mod tests {
         let result = base.wrapping_sub(val);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x95;
-        cpu.registers.a = base;
-        cpu.registers.l = val;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("L", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1780,12 +1632,12 @@ mod tests {
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x96;
         cpu.memory.ram[((val1 as u16) << 8 | val2 as u16) as usize] = val;
-        cpu.registers.a = base;
-        cpu.registers.h = val1;
-        cpu.registers.l = val2;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("H", val1);
+        cpu.registers.set_value("L", val2);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1800,12 +1652,12 @@ mod tests {
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x96;
         cpu.memory.ram[((val1 as u16) << 8 | val2 as u16) as usize] = val;
-        cpu.registers.a = base;
-        cpu.registers.h = val1;
-        cpu.registers.l = val2;
+        cpu.registers.set_value("A", base);
+        cpu.registers.set_value("H", val1);
+        cpu.registers.set_value("L", val2);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1815,10 +1667,10 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x97;
-        cpu.registers.a = val;
+        cpu.registers.set_value("A", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, 0);
+        assert_eq!(cpu.registers.get_value("A"), 0);
     }
 
     #[test]
@@ -1828,10 +1680,10 @@ mod tests {
         let pc = get_random_number(0xFFFF);
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0x97;
-        cpu.registers.a = val;
+        cpu.registers.set_value("A", val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, 0);
+        assert_eq!(cpu.registers.get_value("A"), 0);
     }
 
     #[test]
@@ -1843,11 +1695,11 @@ mod tests {
         let result = reg_val & acc_val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0xA0;
-        cpu.registers.b = reg_val;
-        cpu.registers.a = acc_val;
+        cpu.registers.set_value("B", reg_val);
+        cpu.registers.set_value("A", acc_val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1859,11 +1711,11 @@ mod tests {
         let result = reg_val & acc_val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0xA1;
-        cpu.registers.c = reg_val;
-        cpu.registers.a = acc_val;
+        cpu.registers.set_value("C", reg_val);
+        cpu.registers.set_value("A", acc_val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1875,11 +1727,11 @@ mod tests {
         let result = reg_val & acc_val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0xA2;
-        cpu.registers.d = reg_val;
-        cpu.registers.a = acc_val;
+        cpu.registers.set_value("D", reg_val);
+        cpu.registers.set_value("A", acc_val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     #[test]
@@ -1891,11 +1743,11 @@ mod tests {
         let result = reg_val & acc_val;
         cpu.registers.pc = pc;
         cpu.memory.ram[pc as usize] = 0xA3;
-        cpu.registers.e = reg_val;
-        cpu.registers.a = acc_val;
+        cpu.registers.set_value("E", reg_val);
+        cpu.registers.set_value("A", acc_val);
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.a, result);
+        assert_eq!(cpu.registers.get_value("A"), result);
     }
 
     fn test_flag_values(cpu: &Cpu, p: bool, s: bool, z: bool, cy: bool, ac: bool) {

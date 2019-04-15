@@ -1,10 +1,29 @@
 pub struct Registers {
     pub pc: u16,
-    pub a: u8,
-    pub b: u8,
-    pub c: u8,
-    pub d: u8,
-    pub e: u8,
-    pub h: u8,
-    pub l: u8,
+    pub register: [u8; 7],
+}
+
+impl Registers {
+    pub fn get_value(&self, register: &str) -> u8 {
+        let index = self.get_index(register);
+        self.register[index]
+    }
+
+    pub fn set_value(&mut self, register: &str, val: u8) {
+        let index = self.get_index(register);
+        self.register[index] = val;
+    }
+
+    fn get_index(&self, register: &str) -> usize {
+        match register {
+            "B" => 0,
+            "C" => 1,
+            "D" => 2,
+            "E" => 3,
+            "H" => 4,
+            "L" => 5,
+            "A" => 6,
+            _ => panic!("Invalid index"),
+        }
+    }
 }
