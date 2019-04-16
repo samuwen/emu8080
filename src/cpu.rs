@@ -304,22 +304,14 @@ impl Cpu {
                 op.operation_name = String::from("XRA");
                 self.xra_operation(op.operation_register);
             }
-            // 0xB0 => debug!("{:x} ORA   B", self.registers.pc),
-            // 0xB1 => debug!("{:x} ORA   C", self.registers.pc),
-            // 0xB2 => debug!("{:x} ORA   D", self.registers.pc),
-            // 0xB3 => debug!("{:x} ORA   E", self.registers.pc),
-            // 0xB4 => debug!("{:x} ORA   H", self.registers.pc),
-            // 0xB5 => debug!("{:x} ORA   L", self.registers.pc),
-            // 0xB6 => debug!("{:x} ORA   M", self.registers.pc),
-            // 0xB7 => debug!("{:x} ORA   A", self.registers.pc),
-            // 0xB8 => debug!("{:x} CMP   B", self.registers.pc),
-            // 0xB9 => debug!("{:x} CMP   C", self.registers.pc),
-            // 0xBA => debug!("{:x} CMP   D", self.registers.pc),
-            // 0xBB => debug!("{:x} CMP   E", self.registers.pc),
-            // 0xBC => debug!("{:x} CMP   H", self.registers.pc),
-            // 0xBD => debug!("{:x} CMP   L", self.registers.pc),
-            // 0xBE => debug!("{:x} CMP   M", self.registers.pc),
-            // 0xBF => debug!("{:x} CMP   A", self.registers.pc),
+            0xB0...0xB7 => {
+                op.operation_name = String::from("ORA");
+                self.ora_operation(op.operation_register);
+            }
+            0xB8...0xBF => {
+                op.operation_name = String::from("CMP");
+                self.cmp_operation(op.operation_register);
+            }
             // 0xC0 => debug!("{:x} RNZ", self.registers.pc),
             // 0xC1 => debug!("{:x} POP   B", self.registers.pc),
             // 0xC2 => {
@@ -560,11 +552,12 @@ impl Cpu {
     }
 
     #[inline]
-    fn set_flags(&mut self, val: &u8, overflow: bool, aux_vals: (bool, bool)) {
-        self.flags.p = self.sets_parity_flag(&val);
-        self.flags.z = self.sets_zero_flag(&val);
-        self.flags.s = self.sets_sign_flag(&val);
-        self.flags.ac = self.sets_aux_carry_flag(aux_vals.0, aux_vals.1, &val);
+    fn set_flags(&mut self, result: &u8, register: u8, overflow: bool) {
+        let aux_vals: (bool, bool) = self.get_b3_vals(&register);
+        self.flags.p = self.sets_parity_flag(&result);
+        self.flags.z = self.sets_zero_flag(&result);
+        self.flags.s = self.sets_sign_flag(&result);
+        self.flags.ac = self.sets_aux_carry_flag(aux_vals.0, aux_vals.1, &result);
         self.flags.cy = overflow;
     }
 
@@ -605,12 +598,14 @@ impl Cpu {
     }
 
     fn adc_operation(&mut self, register: String) {
-        let flag_set = if self.flags.cy { true } else { false };
-        self.add_operation(register);
-        if flag_set {
-            let result = self.registers.get_value("A").wrapping_add(1);
-            self.registers.set_value("A", result);
-        }
+        let carry_value = if self.flags.cy { 1 } else { 0 };
+        let register_value = self.get_register_value(&register) + carry_value;
+        let (result, overflow) = self
+            .registers
+            .get_value("A")
+            .overflowing_add(register_value);
+        self.set_flags(&result, register_value, overflow);
+        self.registers.set_value("A", result);
     }
 
     fn add_operation(&mut self, register: String) {
@@ -619,46 +614,62 @@ impl Cpu {
             .registers
             .get_value("A")
             .overflowing_add(register_value);
-        let (b1, b2) = self.get_b3_vals(&register_value);
-
-        self.set_flags(&result, overflow, (b1, b2));
+        self.set_flags(&result, register_value, overflow);
         self.registers.set_value("A", result);
     }
 
     fn sbb_operation(&mut self, register: String) {
-        let register_value = self.get_register_value(&register);
-        if self.flags.cy {
-            self.registers.set_value(&register, register_value + 1)
-        }
-        self.sub_operation(register);
+        let carry_value = if self.flags.cy { 1 } else { 0 };
+        let register_value = self.get_register_value(&register) + carry_value;
+        let (result, mut overflow) = self
+            .registers
+            .get_value("A")
+            .overflowing_sub(register_value);
+        overflow = !overflow;
+        self.set_flags(&result, register_value, overflow);
+        self.registers.set_value("A", result);
     }
 
     fn sub_operation(&mut self, register: String) {
         let register_value = self.get_register_value(&register);
-        let (result, overflow) = self
+        let (result, mut overflow) = self
             .registers
             .get_value("A")
             .overflowing_sub(register_value);
-        let (b1, b2) = self.get_b3_vals(&register_value);
-
-        self.set_flags(&result, overflow, (b1, b2));
+        overflow = !overflow;
+        self.set_flags(&result, register_value, overflow);
         self.registers.set_value("A", result);
     }
 
     fn ana_operation(&mut self, register: String) {
         let register_value = self.get_register_value(&register);
         let result = self.registers.get_value("A") & register_value;
-        let (b1, b2) = self.get_b3_vals(&register_value);
-        self.set_flags(&result, false, (b1, b2));
+        self.set_flags(&result, register_value, false);
         self.registers.set_value("A", result);
     }
 
     fn xra_operation(&mut self, register: String) {
         let register_value = self.get_register_value(&register);
         let result = self.registers.get_value("A") ^ register_value;
-        let (b1, b2) = self.get_b3_vals(&register_value);
-        self.set_flags(&result, false, (b1, b2));
+        self.set_flags(&result, register_value, false);
         self.registers.set_value("A", result);
+    }
+
+    fn ora_operation(&mut self, register: String) {
+        let register_value = self.get_register_value(&register);
+        let result = self.registers.get_value("A") | register_value;
+        self.set_flags(&result, register_value, false);
+        self.registers.set_value("A", result);
+    }
+
+    fn cmp_operation(&mut self, register: String) {
+        let register_value = self.get_register_value(&register);
+        let (result, mut overflow) = self
+            .registers
+            .get_value("A")
+            .overflowing_sub(register_value);
+        overflow = !overflow;
+        self.set_flags(&result, register_value, overflow);
     }
 
     fn get_register_value(&mut self, register: &String) -> u8 {
@@ -793,7 +804,7 @@ mod tests {
         cpu.registers.set_value("A", v1);
         let (b1, b2) = cpu.get_b3_vals(&v2);
         let (result, overflow) = v1.overflowing_add(v2);
-        cpu.set_flags(&result, overflow, (b1, b2));
+        cpu.set_flags(&result, v2, overflow);
         let p = if result % 2 == 0 { true } else { false };
         let s = if (result & 0x80) >> 7 == 1 {
             true
@@ -985,6 +996,53 @@ mod tests {
         cpu.execute_opcode();
 
         assert_eq!(cpu.registers.get_value("A"), result);
+    }
+
+    #[test]
+    fn test_opcode_b5_ora_l() {
+        let mut cpu = Cpu::new_and_init();
+        let reg_val = get_random_number(0xFF) as u8;
+        let acc_val = get_random_number(0xFF) as u8;
+        let pc = get_random_number(0xFFFF);
+        let result = reg_val | acc_val;
+        cpu.registers.pc = pc;
+        cpu.memory.ram[pc as usize] = 0xB5;
+        cpu.registers.set_value("L", reg_val);
+        cpu.registers.set_value("A", acc_val);
+        cpu.execute_opcode();
+
+        assert_eq!(cpu.registers.get_value("A"), result);
+    }
+
+    #[test]
+    fn test_opcode_b9_cmp_c_not_equal() {
+        let mut cpu = Cpu::new_and_init();
+        let reg_val = get_random_number(0xFF) as u8;
+        let acc_val = get_random_number(0xFF) as u8;
+        let pc = get_random_number(0xFFFF);
+        cpu.registers.pc = pc;
+        cpu.memory.ram[pc as usize] = 0xB9;
+        cpu.registers.set_value("C", reg_val);
+        cpu.registers.set_value("A", acc_val);
+        cpu.execute_opcode();
+
+        assert_eq!(cpu.registers.get_value("A"), acc_val);
+        assert_eq!(cpu.flags.z, false);
+    }
+
+    #[test]
+    fn test_opcode_b9_cmp_c_equal() {
+        let mut cpu = Cpu::new_and_init();
+        let reg_val = get_random_number(0xFF) as u8;
+        let pc = get_random_number(0xFFFF);
+        cpu.registers.pc = pc;
+        cpu.memory.ram[pc as usize] = 0xB9;
+        cpu.registers.set_value("C", reg_val);
+        cpu.registers.set_value("A", reg_val);
+        cpu.execute_opcode();
+
+        assert_eq!(cpu.registers.get_value("A"), reg_val);
+        assert_eq!(cpu.flags.z, true);
     }
 
     fn test_flag_values(cpu: &Cpu, p: bool, s: bool, z: bool, cy: bool, ac: bool) {
