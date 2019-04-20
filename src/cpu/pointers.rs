@@ -23,6 +23,12 @@ impl From<Pointer> for usize {
     }
 }
 
+impl From<Pointer> for u16 {
+    fn from(t: Pointer) -> u16 {
+        t.x as u16
+    }
+}
+
 impl Add<u16> for Pointer {
     type Output = Pointer;
 

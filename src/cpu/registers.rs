@@ -20,8 +20,8 @@ impl From<usize> for Register {
     }
 }
 
-impl From<&Register> for u8 {
-    fn from(t: &Register) -> Self {
+impl From<Register> for u8 {
+    fn from(t: Register) -> Self {
         t.0
     }
 }
