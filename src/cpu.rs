@@ -1,45 +1,36 @@
 mod flags;
 mod memory;
 mod opcode;
+mod pointers;
 mod registers;
+mod stack;
 
 use flags::Flags;
 use memory::Memory;
 use opcode::Opcode;
-use registers::Registers;
+use pointers::Pointer;
+use registers::Register;
+use stack::Stack;
 
-// struct Stack {
-//     pointer: u16,
-//     stack: [u8; 16],
-// }
-
+#[derive(Clone, Copy, Default)]
 pub struct Cpu {
-    registers: Registers,
+    a: Register,
+    b: Register,
+    c: Register,
+    d: Register,
+    e: Register,
+    h: Register,
+    l: Register,
+    pc: Pointer,
+    sp: Pointer,
     memory: Memory,
-    // stack: Stack,
+    stack: Stack,
     flags: Flags,
 }
 
 impl Cpu {
-    pub fn new_and_init() -> Cpu {
-        Cpu {
-            registers: Registers {
-                pc: 0,
-                register: [0u8; 7],
-            },
-            memory: Memory { ram: [0; 0xFFFF] },
-            // stack: Stack {
-            //     pointer: 0,
-            //     stack: [0; 16],
-            // },
-            flags: Flags {
-                z: false,
-                s: false,
-                p: false,
-                cy: false,
-                ac: false,
-            },
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn load_rom_into_memory(&mut self, start_addr: usize, rom: &[u8; 0x7FF]) {
@@ -48,507 +39,458 @@ impl Cpu {
         }
     }
 
-    pub fn execute_opcode(&mut self) {
-        let mut op = Opcode::new();
-        op.code = self.memory.ram[self.registers.pc as usize];
-        op.set_operation_register();
-        op.assc_bytes = (
-            self.memory.ram[(self.registers.pc + 2) as usize],
-            self.memory.ram[(self.registers.pc + 1) as usize],
-        );
-        self.registers.pc += 1;
+    pub fn execute_opcode(mut self) {
+        let code = self.memory.ram[usize::from(self.pc)];
+        let op = Opcode::new(code);
         match op.code {
-            0x00 => {
-                op.operation_name = String::from("NOP");
-            }
-            0x01 => {
-                op.operation_name = String::from("LXI");
-                self.registers.set_value("B", op.assc_bytes.0);
-                self.registers.set_value("C", op.assc_bytes.1);
-                self.registers.pc += 2;
-            }
-            0x02 => {
-                op.operation_name = String::from("STAX B");
-            }
-            0x03 => {
-                op.operation_name = String::from("INX B");
-            }
-            0x04 => {
-                op.operation_name = String::from("INR B");
-            }
-            0x05 => {
-                op.operation_name = String::from("DCR B");
-            }
-            0x06 => {
-                op.operation_name = String::from("MVI B");
-            }
-            // 0x07 => debug!("{:x} RLC", self.registers.pc),
-            // 0x08 => debug!("{:x} NOP", self.registers.pc),
-            // 0x09 => debug!("{:x} DAD   B", self.registers.pc),
-            // 0x0A => debug!("{:x} LDAX  B", self.registers.pc),
-            // 0x0B => debug!("{:x} DCX   B", self.registers.pc),
-            // 0x0C => debug!("{:x} INR   C", self.registers.pc),
-            // 0x0D => debug!("{:x} DCR   C", self.registers.pc),
-            // 0x0E => {
-            //     debug!("{:x} MVI   C, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
+            0x00 | 0x08 | 0x10 | 0x18 | 0x20 | 0x28 | 0x30 | 0x38 | 0xCB | 0xD9 | 0xDD | 0xED
+            | 0xFD => {}
+            0x01 => self.lxi_operation(op.code),
+            // 0x02 => {
+            //     op.operation_name = String::from("STAX B");
             // }
-            // 0x0F => debug!("{:x} RRC", self.registers.pc),
-            // 0x10 => debug!("{:x} NOP", self.registers.pc),
-            // 0x11 => {
-            //     debug!(
-            //         "{:x} LXI   D, {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
+            // 0x03 => {
+            //     op.operation_name = String::from("INX B");
             // }
-            // 0x12 => debug!("{:x} STAX  D", self.registers.pc),
-            // 0x13 => debug!("{:x} INX   D", self.registers.pc),
-            // 0x14 => debug!("{:x} INR   D", self.registers.pc),
-            // 0x15 => debug!("{:x} DCR   D", self.registers.pc),
-            // 0x16 => {
-            //     debug!("{:x} MVI   D, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
+            // 0x04 => {
+            //     op.operation_name = String::from("INR B");
             // }
-            // 0x17 => debug!("{:x} RAL", self.registers.pc),
-            // 0x18 => debug!("{:x} NOP", self.registers.pc),
-            // 0x19 => debug!("{:x} DAD   D", self.registers.pc),
-            // 0x1A => debug!("{:x} LDAX  D", self.registers.pc),
-            // 0x1B => debug!("{:x} DCX   D", self.registers.pc),
-            // 0x1C => debug!("{:x} INR   E", self.registers.pc),
-            // 0x1D => debug!("{:x} DCR   E", self.registers.pc),
-            // 0x1E => {
-            //     debug!("{:x} MVI   E, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
+            // 0x05 => {
+            //     op.operation_name = String::from("DCR B");
             // }
-            // 0x1F => debug!("{:x} RAR", self.registers.pc),
-            // 0x20 => debug!("{:x} NOP", self.registers.pc),
-            // 0x21 => {
-            //     debug!(
-            //         "{:x} LXI   H, {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
+            // 0x06 => {
+            //     op.operation_name = String::from("MVI B");
             // }
-            // 0x22 => {
-            //     debug!(
-            //         "{:x} SHLD     {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
+            // // 0x07 => debug!("{:x} RLC", self.registers.pc),
+            // // 0x09 => debug!("{:x} DAD   B", self.registers.pc),
+            // // 0x0A => debug!("{:x} LDAX  B", self.registers.pc),
+            // // 0x0B => debug!("{:x} DCX   B", self.registers.pc),
+            // // 0x0C => debug!("{:x} INR   C", self.registers.pc),
+            // // 0x0D => debug!("{:x} DCR   C", self.registers.pc),
+            // // 0x0E => {
+            // //     debug!("{:x} MVI   C, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0x0F => debug!("{:x} RRC", self.registers.pc),
+            // // 0x11 => {
+            // //     debug!(
+            // //         "{:x} LXI   D, {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0x12 => debug!("{:x} STAX  D", self.registers.pc),
+            // // 0x13 => debug!("{:x} INX   D", self.registers.pc),
+            // // 0x14 => debug!("{:x} INR   D", self.registers.pc),
+            // // 0x15 => debug!("{:x} DCR   D", self.registers.pc),
+            // // 0x16 => {
+            // //     debug!("{:x} MVI   D, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0x17 => debug!("{:x} RAL", self.registers.pc),
+            // // 0x19 => debug!("{:x} DAD   D", self.registers.pc),
+            // // 0x1A => debug!("{:x} LDAX  D", self.registers.pc),
+            // // 0x1B => debug!("{:x} DCX   D", self.registers.pc),
+            // // 0x1C => debug!("{:x} INR   E", self.registers.pc),
+            // // 0x1D => debug!("{:x} DCR   E", self.registers.pc),
+            // // 0x1E => {
+            // //     debug!("{:x} MVI   E, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0x1F => debug!("{:x} RAR", self.registers.pc),
+            // // 0x21 => {
+            // //     debug!(
+            // //         "{:x} LXI   H, {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0x22 => {
+            // //     debug!(
+            // //         "{:x} SHLD     {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0x23 => debug!("{:x} INX   H", self.registers.pc),
+            // // 0x24 => debug!("{:x} INR   H", self.registers.pc),
+            // // 0x25 => debug!("{:x} DCR   H", self.registers.pc),
+            // // 0x26 => {
+            // //     debug!("{:x} MVI   H, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0x27 => debug!("{:x} DAA", self.registers.pc),
+            // // 0x29 => debug!("{:x} DAD   H", self.registers.pc),
+            // // 0x2A => {
+            // //     debug!(
+            // //         "{:x} LHLD     {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0x2B => debug!("{:x} DCX   H", self.registers.pc),
+            // // 0x2C => debug!("{:x} INR   L", self.registers.pc),
+            // // 0x2D => debug!("{:x} DCR   L", self.registers.pc),
+            // // 0x2E => {
+            // //     debug!("{:x} MVI   L, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0x2F => debug!("{:x} CMA", self.registers.pc),
+            // // 0x31 => {
+            // //     debug!(
+            // //         "{:x} LXI  SP, {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0x32 => {
+            // //     debug!(
+            // //         "{:x} STA   {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0x33 => debug!("{:x} INX  SP", self.registers.pc),
+            // // 0x34 => debug!("{:x} INR   M", self.registers.pc),
+            // // 0x35 => debug!("{:x} DCR   M", self.registers.pc),
+            // // 0x36 => {
+            // //     debug!("{:x} MVI   M, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0x37 => debug!("{:x} STC", self.registers.pc),
+            // // 0x39 => debug!("{:x} DAD  SP", self.registers.pc),
+            // // 0x3A => {
+            // //     debug!(
+            // //         "{:x} LDA      {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0x3B => debug!("{:x} DCX  SP", self.registers.pc),
+            // // 0x3C => debug!("{:x} INR   A", self.registers.pc),
+            // // 0x3D => debug!("{:x} DCR   A", self.registers.pc),
+            // // 0x3E => {
+            // //     debug!("{:x} MVI   A, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0x3F => debug!("{:x} CMC", self.registers.pc),
+            // // 0x40 => debug!("{:x} MOV  B,B", self.registers.pc),
+            // // 0x41 => debug!("{:x} MOV  B,C", self.registers.pc),
+            // // 0x42 => debug!("{:x} MOV  B,D", self.registers.pc),
+            // // 0x43 => debug!("{:x} MOV  B,E", self.registers.pc),
+            // // 0x44 => debug!("{:x} MOV  B,H", self.registers.pc),
+            // // 0x45 => debug!("{:x} MOV  B,L", self.registers.pc),
+            // // 0x46 => debug!("{:x} MOV  B,M", self.registers.pc),
+            // // 0x47 => debug!("{:x} MOV  B,A", self.registers.pc),
+            // // 0x48 => debug!("{:x} MOV  C,B", self.registers.pc),
+            // // 0x49 => debug!("{:x} MOV  C,C", self.registers.pc),
+            // // 0x4A => debug!("{:x} MOV  C,D", self.registers.pc),
+            // // 0x4B => debug!("{:x} MOV  C,E", self.registers.pc),
+            // // 0x4C => debug!("{:x} MOV  C,H", self.registers.pc),
+            // // 0x4D => debug!("{:x} MOV  C,L", self.registers.pc),
+            // // 0x4E => debug!("{:x} MOV  C,M", self.registers.pc),
+            // // 0x4F => debug!("{:x} MOV  C,A", self.registers.pc),
+            // // 0x50 => debug!("{:x} MOV  D,B", self.registers.pc),
+            // // 0x51 => debug!("{:x} MOV  D,C", self.registers.pc),
+            // // 0x52 => debug!("{:x} MOV  D,D", self.registers.pc),
+            // // 0x53 => debug!("{:x} MOV  D,E", self.registers.pc),
+            // // 0x54 => debug!("{:x} MOV  D,H", self.registers.pc),
+            // // 0x55 => debug!("{:x} MOV  D,L", self.registers.pc),
+            // // 0x56 => debug!("{:x} MOV  D,M", self.registers.pc),
+            // // 0x57 => debug!("{:x} MOV  D,A", self.registers.pc),
+            // // 0x58 => debug!("{:x} MOV  E,B", self.registers.pc),
+            // // 0x59 => debug!("{:x} MOV  E,C", self.registers.pc),
+            // // 0x5A => debug!("{:x} MOV  E,D", self.registers.pc),
+            // // 0x5B => debug!("{:x} MOV  E,E", self.registers.pc),
+            // // 0x5C => debug!("{:x} MOV  E,H", self.registers.pc),
+            // // 0x5D => debug!("{:x} MOV  E,L", self.registers.pc),
+            // // 0x5E => debug!("{:x} MOV  E,M", self.registers.pc),
+            // // 0x5F => debug!("{:x} MOV  E,A", self.registers.pc),
+            // // 0x60 => debug!("{:x} MOV  H,B", self.registers.pc),
+            // // 0x61 => debug!("{:x} MOV  H,C", self.registers.pc),
+            // // 0x62 => debug!("{:x} MOV  H,D", self.registers.pc),
+            // // 0x63 => debug!("{:x} MOV  H,E", self.registers.pc),
+            // // 0x64 => debug!("{:x} MOV  H,H", self.registers.pc),
+            // // 0x65 => debug!("{:x} MOV  H,L", self.registers.pc),
+            // // 0x66 => debug!("{:x} MOV  H,M", self.registers.pc),
+            // // 0x67 => debug!("{:x} MOV  H,A", self.registers.pc),
+            // // 0x68 => debug!("{:x} MOV  L,B", self.registers.pc),
+            // // 0x69 => debug!("{:x} MOV  L,C", self.registers.pc),
+            // // 0x6A => debug!("{:x} MOV  L,D", self.registers.pc),
+            // // 0x6B => debug!("{:x} MOV  L,E", self.registers.pc),
+            // // 0x6C => debug!("{:x} MOV  L,H", self.registers.pc),
+            // // 0x6D => debug!("{:x} MOV  L,L", self.registers.pc),
+            // // 0x6E => debug!("{:x} MOV  L,M", self.registers.pc),
+            // // 0x6F => debug!("{:x} MOV  L,A", self.registers.pc),
+            // // 0x70 => debug!("{:x} MOV  M,B", self.registers.pc),
+            // // 0x71 => debug!("{:x} MOV  M,C", self.registers.pc),
+            // // 0x72 => debug!("{:x} MOV  M,D", self.registers.pc),
+            // // 0x73 => debug!("{:x} MOV  M,E", self.registers.pc),
+            // // 0x74 => debug!("{:x} MOV  M,H", self.registers.pc),
+            // // 0x75 => debug!("{:x} MOV  M,L", self.registers.pc),
+            // // 0x76 => debug!("{:x} HLT", self.registers.pc),
+            // // 0x77 => debug!("{:x} MOV M,A", self.registers.pc),
+            // // 0x78 => debug!("{:x} MOV A,B", self.registers.pc),
+            // // 0x79 => debug!("{:x} MOV A,C", self.registers.pc),
+            // // 0x7A => debug!("{:x} MOV A,D", self.registers.pc),
+            // // 0x7B => debug!("{:x} MOV A,E", self.registers.pc),
+            // // 0x7C => debug!("{:x} MOV A,H", self.registers.pc),
+            // // 0x7D => debug!("{:x} MOV A,L", self.registers.pc),
+            // // 0x7E => debug!("{:x} MOV A,M", self.registers.pc),
+            // // 0x7F => debug!("{:x} MOV A,A", self.registers.pc),
+            0x80...0x87 => self.add_operation(op.code),
+            0x88...0x8F => self.adc_operation(op.code),
+            0x90...0x97 => self.sub_operation(op.code),
+            0x98...0x9F => self.sbb_operation(op.code),
+            0xA0...0xA7 => self.ana_operation(op.code),
+            0xA8...0xAF => self.xra_operation(op.code),
+            0xB0...0xB7 => self.ora_operation(op.code),
+            0xB8...0xBF => self.cmp_operation(op.code),
+            // // 0xC0 => debug!("{:x} RNZ", self.registers.pc),
+            // // 0xC1 => debug!("{:x} POP   B", self.registers.pc),
+            // // 0xC2 => {
+            // //     debug!(
+            // //         "{:x} JNZ   {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // 0xC3 => {
+            //     op.operation_name = String::from("JMP");
+            //     self.registers.pc = ((op.assc_bytes.0 as u16) << 8 as u16) + op.assc_bytes.1 as u16;
             // }
-            // 0x23 => debug!("{:x} INX   H", self.registers.pc),
-            // 0x24 => debug!("{:x} INR   H", self.registers.pc),
-            // 0x25 => debug!("{:x} DCR   H", self.registers.pc),
-            // 0x26 => {
-            //     debug!("{:x} MVI   H, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
+            // // 0xC4 => {
+            // //     debug!(
+            // //         "{:x} CNZ   {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // 0xC5 => {
+            //     op.operation_name = String::from("PUSH");
             // }
-            // 0x27 => debug!("{:x} DAA", self.registers.pc),
-            // 0x28 => debug!("{:x} NOP", self.registers.pc),
-            // 0x29 => debug!("{:x} DAD   H", self.registers.pc),
-            // 0x2A => {
-            //     debug!(
-            //         "{:x} LHLD     {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
+            // // 0xC6 => {
+            // //     debug!("{:x} ADI  D8, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0xC7 => debug!("{:x} RST", self.registers.pc),
+            // // 0xC8 => debug!("{:x} RZ", self.registers.pc),
+            // // 0xC9 => debug!("{:x} RET", self.registers.pc),
+            // // 0xCA => debug!("{:x} JZ", self.registers.pc),
+            // // 0xCC => {
+            // //     debug!(
+            // //         "{:x} CZ    {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0xCD => {
+            // //     debug!(
+            // //         "{:x} CALL  {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0xCE => {
+            // //     debug!("{:x} ACI  D8, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0xCF => debug!("{:x} RST   1", self.registers.pc),
+            // // 0xD0 => debug!("{:x} RNC", self.registers.pc),
+            // // 0xD1 => debug!("{:x} POP   D", self.registers.pc),
+            // // 0xD2 => {
+            // //     debug!(
+            // //         "{:x} JNC   {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0xD3 => {
+            // //     debug!("{:x} OUT  D8, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0xD4 => {
+            // //     debug!(
+            // //         "{:x} CNC   {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // 0xD5 => {
+            //     op.operation_name = String::from("PUSH");
             // }
-            // 0x2B => debug!("{:x} DCX   H", self.registers.pc),
-            // 0x2C => debug!("{:x} INR   L", self.registers.pc),
-            // 0x2D => debug!("{:x} DCR   L", self.registers.pc),
-            // 0x2E => {
-            //     debug!("{:x} MVI   L, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
+            // // 0xD6 => {
+            // //     debug!("{:x} SUI  D8, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0xD7 => debug!("{:x} RST   2", self.registers.pc),
+            // // 0xD8 => debug!("{:x} RC", self.registers.pc),
+            // // 0xDA => {
+            // //     debug!(
+            // //         "{:x} JC    {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0xDB => {
+            // //     debug!("{:x} IN    D8, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0xDC => {
+            // //     debug!(
+            // //         "{:x} CC    {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0xDE => {
+            // //     debug!("{:x} SBI  D8, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0xDF => debug!("{:x} RST   3", self.registers.pc),
+            // // 0xE0 => debug!("{:x} RPO", self.registers.pc),
+            // // 0xE1 => debug!("{:x} POP   H", self.registers.pc),
+            // // 0xE2 => {
+            // //     debug!(
+            // //         "{:x} JPO   {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0xE3 => debug!("{:x} XTHL", self.registers.pc),
+            // // 0xE4 => {
+            // //     debug!(
+            // //         "{:x} CPO   {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // 0xE5 => {
+            //     op.operation_name = String::from("PUSH");
             // }
-            // 0x2F => debug!("{:x} CMA", self.registers.pc),
-            // 0x30 => debug!("{:x} NOP", self.registers.pc),
-            // 0x31 => {
-            //     debug!(
-            //         "{:x} LXI  SP, {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
+            // // 0xE6 => {
+            // //     debug!("{:x} ANI  D8, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0xE7 => debug!("{:x} RST   4", self.registers.pc),
+            // // 0xE8 => debug!("{:x} RPE", self.registers.pc),
+            // // 0xE9 => debug!("{:x} PCHL", self.registers.pc),
+            // // 0xEA => {
+            // //     debug!(
+            // //         "{:x} JPE   {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0xEB => debug!("{:x} XCHG", self.registers.pc),
+            // // 0xEC => {
+            // //     debug!(
+            // //         "{:x} CPE   {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0xEE => {
+            // //     debug!("{:x} XRE   D8, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0xEF => debug!("{:x} RST   5", self.registers.pc),
+            // // 0xF0 => debug!("{:x} RP", self.registers.pc),
+            // // 0xF1 => debug!("{:x} POP PSW", self.registers.pc),
+            // // 0xF2 => {
+            // //     debug!(
+            // //         "{:x} JP    {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0xF3 => debug!("{:x} DI", self.registers.pc),
+            // // 0xF4 => {
+            // //     debug!(
+            // //         "{:x} CP    {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // 0xF5 => {
+            //     op.operation_name = String::from("PUSH PSW");
             // }
-            // 0x32 => {
-            //     debug!(
-            //         "{:x} STA   {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            // 0x33 => debug!("{:x} INX  SP", self.registers.pc),
-            // 0x34 => debug!("{:x} INR   M", self.registers.pc),
-            // 0x35 => debug!("{:x} DCR   M", self.registers.pc),
-            // 0x36 => {
-            //     debug!("{:x} MVI   M, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
-            // }
-            // 0x37 => debug!("{:x} STC", self.registers.pc),
-            // 0x38 => debug!("{:x} NOP", self.registers.pc),
-            // 0x39 => debug!("{:x} DAD  SP", self.registers.pc),
-            // 0x3A => {
-            //     debug!(
-            //         "{:x} LDA      {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            // 0x3B => debug!("{:x} DCX  SP", self.registers.pc),
-            // 0x3C => debug!("{:x} INR   A", self.registers.pc),
-            // 0x3D => debug!("{:x} DCR   A", self.registers.pc),
-            // 0x3E => {
-            //     debug!("{:x} MVI   A, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
-            // }
-            // 0x3F => debug!("{:x} CMC", self.registers.pc),
-            // 0x40 => debug!("{:x} MOV  B,B", self.registers.pc),
-            // 0x41 => debug!("{:x} MOV  B,C", self.registers.pc),
-            // 0x42 => debug!("{:x} MOV  B,D", self.registers.pc),
-            // 0x43 => debug!("{:x} MOV  B,E", self.registers.pc),
-            // 0x44 => debug!("{:x} MOV  B,H", self.registers.pc),
-            // 0x45 => debug!("{:x} MOV  B,L", self.registers.pc),
-            // 0x46 => debug!("{:x} MOV  B,M", self.registers.pc),
-            // 0x47 => debug!("{:x} MOV  B,A", self.registers.pc),
-            // 0x48 => debug!("{:x} MOV  C,B", self.registers.pc),
-            // 0x49 => debug!("{:x} MOV  C,C", self.registers.pc),
-            // 0x4A => debug!("{:x} MOV  C,D", self.registers.pc),
-            // 0x4B => debug!("{:x} MOV  C,E", self.registers.pc),
-            // 0x4C => debug!("{:x} MOV  C,H", self.registers.pc),
-            // 0x4D => debug!("{:x} MOV  C,L", self.registers.pc),
-            // 0x4E => debug!("{:x} MOV  C,M", self.registers.pc),
-            // 0x4F => debug!("{:x} MOV  C,A", self.registers.pc),
-            // 0x50 => debug!("{:x} MOV  D,B", self.registers.pc),
-            // 0x51 => debug!("{:x} MOV  D,C", self.registers.pc),
-            // 0x52 => debug!("{:x} MOV  D,D", self.registers.pc),
-            // 0x53 => debug!("{:x} MOV  D,E", self.registers.pc),
-            // 0x54 => debug!("{:x} MOV  D,H", self.registers.pc),
-            // 0x55 => debug!("{:x} MOV  D,L", self.registers.pc),
-            // 0x56 => debug!("{:x} MOV  D,M", self.registers.pc),
-            // 0x57 => debug!("{:x} MOV  D,A", self.registers.pc),
-            // 0x58 => debug!("{:x} MOV  E,B", self.registers.pc),
-            // 0x59 => debug!("{:x} MOV  E,C", self.registers.pc),
-            // 0x5A => debug!("{:x} MOV  E,D", self.registers.pc),
-            // 0x5B => debug!("{:x} MOV  E,E", self.registers.pc),
-            // 0x5C => debug!("{:x} MOV  E,H", self.registers.pc),
-            // 0x5D => debug!("{:x} MOV  E,L", self.registers.pc),
-            // 0x5E => debug!("{:x} MOV  E,M", self.registers.pc),
-            // 0x5F => debug!("{:x} MOV  E,A", self.registers.pc),
-            // 0x60 => debug!("{:x} MOV  H,B", self.registers.pc),
-            // 0x61 => debug!("{:x} MOV  H,C", self.registers.pc),
-            // 0x62 => debug!("{:x} MOV  H,D", self.registers.pc),
-            // 0x63 => debug!("{:x} MOV  H,E", self.registers.pc),
-            // 0x64 => debug!("{:x} MOV  H,H", self.registers.pc),
-            // 0x65 => debug!("{:x} MOV  H,L", self.registers.pc),
-            // 0x66 => debug!("{:x} MOV  H,M", self.registers.pc),
-            // 0x67 => debug!("{:x} MOV  H,A", self.registers.pc),
-            // 0x68 => debug!("{:x} MOV  L,B", self.registers.pc),
-            // 0x69 => debug!("{:x} MOV  L,C", self.registers.pc),
-            // 0x6A => debug!("{:x} MOV  L,D", self.registers.pc),
-            // 0x6B => debug!("{:x} MOV  L,E", self.registers.pc),
-            // 0x6C => debug!("{:x} MOV  L,H", self.registers.pc),
-            // 0x6D => debug!("{:x} MOV  L,L", self.registers.pc),
-            // 0x6E => debug!("{:x} MOV  L,M", self.registers.pc),
-            // 0x6F => debug!("{:x} MOV  L,A", self.registers.pc),
-            // 0x70 => debug!("{:x} MOV  M,B", self.registers.pc),
-            // 0x71 => debug!("{:x} MOV  M,C", self.registers.pc),
-            // 0x72 => debug!("{:x} MOV  M,D", self.registers.pc),
-            // 0x73 => debug!("{:x} MOV  M,E", self.registers.pc),
-            // 0x74 => debug!("{:x} MOV  M,H", self.registers.pc),
-            // 0x75 => debug!("{:x} MOV  M,L", self.registers.pc),
-            // 0x76 => debug!("{:x} HLT", self.registers.pc),
-            // 0x77 => debug!("{:x} MOV M,A", self.registers.pc),
-            // 0x78 => debug!("{:x} MOV A,B", self.registers.pc),
-            // 0x79 => debug!("{:x} MOV A,C", self.registers.pc),
-            // 0x7A => debug!("{:x} MOV A,D", self.registers.pc),
-            // 0x7B => debug!("{:x} MOV A,E", self.registers.pc),
-            // 0x7C => debug!("{:x} MOV A,H", self.registers.pc),
-            // 0x7D => debug!("{:x} MOV A,L", self.registers.pc),
-            // 0x7E => debug!("{:x} MOV A,M", self.registers.pc),
-            // 0x7F => debug!("{:x} MOV A,A", self.registers.pc),
-            0x80...0x87 => {
-                op.operation_name = String::from("ADD");
-                self.add_operation(op.operation_register);
-            }
-            0x88...0x8F => {
-                op.operation_name = String::from("ADC");
-                self.adc_operation(op.operation_register);
-            }
-            0x90...0x97 => {
-                op.operation_name = String::from("SUB");;
-                self.sub_operation(op.operation_register);
-            }
-            0x98...0x9F => {
-                op.operation_name = String::from("SBB");
-                self.sbb_operation(op.operation_register);
-            }
-            0xA0...0xA7 => {
-                op.operation_name = String::from("ANA");
-                self.ana_operation(op.operation_register);
-            }
-            0xA8...0xAF => {
-                op.operation_name = String::from("XRA");
-                self.xra_operation(op.operation_register);
-            }
-            0xB0...0xB7 => {
-                op.operation_name = String::from("ORA");
-                self.ora_operation(op.operation_register);
-            }
-            0xB8...0xBF => {
-                op.operation_name = String::from("CMP");
-                self.cmp_operation(op.operation_register);
-            }
-            // 0xC0 => debug!("{:x} RNZ", self.registers.pc),
-            // 0xC1 => debug!("{:x} POP   B", self.registers.pc),
-            // 0xC2 => {
-            //     debug!(
-            //         "{:x} JNZ   {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            0xC3 => {
-                op.operation_name = String::from("JMP");
-                self.registers.pc = ((op.assc_bytes.0 as u16) << 8 as u16) + op.assc_bytes.1 as u16;
-            }
-            // 0xC4 => {
-            //     debug!(
-            //         "{:x} CNZ   {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            0xC5 => {
-                op.operation_name = String::from("PUSH");
-            }
-            // 0xC6 => {
-            //     debug!("{:x} ADI  D8, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
-            // }
-            // 0xC7 => debug!("{:x} RST", self.registers.pc),
-            // 0xC8 => debug!("{:x} RZ", self.registers.pc),
-            // 0xC9 => debug!("{:x} RET", self.registers.pc),
-            // 0xCA => debug!("{:x} JZ", self.registers.pc),
-            // 0xCB => debug!("{:x} NOP", self.registers.pc),
-            // 0xCC => {
-            //     debug!(
-            //         "{:x} CZ    {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            // 0xCD => {
-            //     debug!(
-            //         "{:x} CALL  {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            // 0xCE => {
-            //     debug!("{:x} ACI  D8, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
-            // }
-            // 0xCF => debug!("{:x} RST   1", self.registers.pc),
-            // 0xD0 => debug!("{:x} RNC", self.registers.pc),
-            // 0xD1 => debug!("{:x} POP   D", self.registers.pc),
-            // 0xD2 => {
-            //     debug!(
-            //         "{:x} JNC   {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            // 0xD3 => {
-            //     debug!("{:x} OUT  D8, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
-            // }
-            // 0xD4 => {
-            //     debug!(
-            //         "{:x} CNC   {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            0xD5 => {
-                op.operation_name = String::from("PUSH");
-            }
-            // 0xD6 => {
-            //     debug!("{:x} SUI  D8, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
-            // }
-            // 0xD7 => debug!("{:x} RST   2", self.registers.pc),
-            // 0xD8 => debug!("{:x} RC", self.registers.pc),
-            // 0xD9 => debug!("{:x} NOP", self.registers.pc),
-            // 0xDA => {
-            //     debug!(
-            //         "{:x} JC    {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            // 0xDB => {
-            //     debug!("{:x} IN    D8, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
-            // }
-            // 0xDC => {
-            //     debug!(
-            //         "{:x} CC    {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            // 0xDD => debug!("{:x} NOP", self.registers.pc),
-            // 0xDE => {
-            //     debug!("{:x} SBI  D8, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
-            // }
-            // 0xDF => debug!("{:x} RST   3", self.registers.pc),
-            // 0xE0 => debug!("{:x} RPO", self.registers.pc),
-            // 0xE1 => debug!("{:x} POP   H", self.registers.pc),
-            // 0xE2 => {
-            //     debug!(
-            //         "{:x} JPO   {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            // 0xE3 => debug!("{:x} XTHL", self.registers.pc),
-            // 0xE4 => {
-            //     debug!(
-            //         "{:x} CPO   {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            0xE5 => {
-                op.operation_name = String::from("PUSH");
-            }
-            // 0xE6 => {
-            //     debug!("{:x} ANI  D8, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
-            // }
-            // 0xE7 => debug!("{:x} RST   4", self.registers.pc),
-            // 0xE8 => debug!("{:x} RPE", self.registers.pc),
-            // 0xE9 => debug!("{:x} PCHL", self.registers.pc),
-            // 0xEA => {
-            //     debug!(
-            //         "{:x} JPE   {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            // 0xEB => debug!("{:x} XCHG", self.registers.pc),
-            // 0xEC => {
-            //     debug!(
-            //         "{:x} CPE   {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            // 0xED => debug!("{:x} NOP", self.registers.pc),
-            // 0xEE => {
-            //     debug!("{:x} XRE   D8, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
-            // }
-            // 0xEF => debug!("{:x} RST   5", self.registers.pc),
-            // 0xF0 => debug!("{:x} RP", self.registers.pc),
-            // 0xF1 => debug!("{:x} POP PSW", self.registers.pc),
-            // 0xF2 => {
-            //     debug!(
-            //         "{:x} JP    {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            // 0xF3 => debug!("{:x} DI", self.registers.pc),
-            // 0xF4 => {
-            //     debug!(
-            //         "{:x} CP    {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            0xF5 => {
-                op.operation_name = String::from("PUSH PSW");
-            }
-            // 0xF6 => {
-            //     debug!("{:x} ORI  D8, {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
-            // }
-            // 0xF7 => debug!("{:x} RST   6", self.registers.pc),
-            // 0xF8 => debug!("{:x} RM", self.registers.pc),
-            // 0xF9 => debug!("{:x} SPHL", self.registers.pc),
-            // 0xFA => {
-            //     debug!(
-            //         "{:x} JM    {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            // 0xFB => debug!("{:x} EI", self.registers.pc),
-            // 0xFC => {
-            //     debug!(
-            //         "{:x} CM    {:x}  {:x}",
-            //         self.registers.pc,
-            //         self.extra_byte(2),
-            //         self.extra_byte(1)
-            //     );
-            //     self.registers.pc += 2
-            // }
-            // 0xFD => debug!("{:x} NOP", self.registers.pc),
-            // 0xFE => {
-            //     debug!("{:x} CPI  D8,  {:x}", self.registers.pc, self.extra_byte(1));
-            //     self.registers.pc += 1
-            // }
-            // 0xFF => debug!("{:x} RST   7", self.registers.pc),
-            _ => {
-                op.operation_name = String::from("NYI");
-            }
+            // // 0xF6 => {
+            // //     debug!("{:x} ORI  D8, {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0xF7 => debug!("{:x} RST   6", self.registers.pc),
+            // // 0xF8 => debug!("{:x} RM", self.registers.pc),
+            // // 0xF9 => debug!("{:x} SPHL", self.registers.pc),
+            // // 0xFA => {
+            // //     debug!(
+            // //         "{:x} JM    {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0xFB => debug!("{:x} EI", self.registers.pc),
+            // // 0xFC => {
+            // //     debug!(
+            // //         "{:x} CM    {:x}  {:x}",
+            // //         self.registers.pc,
+            // //         self.extra_byte(2),
+            // //         self.extra_byte(1)
+            // //     );
+            // //     self.registers.pc += 2
+            // // }
+            // // 0xFE => {
+            // //     debug!("{:x} CPI  D8,  {:x}", self.registers.pc, self.extra_byte(1));
+            // //     self.registers.pc += 1
+            // // }
+            // // 0xFF => debug!("{:x} RST   7", self.registers.pc),
+            _ => panic!("Invalid opcode"),
         }
+        self.pc += 1;
     }
 
     #[inline]
@@ -585,8 +527,8 @@ impl Cpu {
     }
 
     #[inline]
-    fn get_b3_vals(&mut self, register: &u8) -> (bool, bool) {
-        let a_val = self.registers.get_value("A");
+    fn get_b3_vals(mut self, register: &u8) -> (bool, bool) {
+        let a_val = u8::from(&self.a);
         let b3_1 = self.is_b3_set(&a_val);
         let b3_2 = self.is_b3_set(&register);
         (b3_1, b3_2)
@@ -597,109 +539,132 @@ impl Cpu {
         (*val & 0x8) == 0x8
     }
 
-    fn adc_operation(&mut self, register: String) {
+    fn adc_operation(&mut self, code: u8) {
         let carry_value = if self.flags.cy { 1 } else { 0 };
-        let register_value = self.get_register_value(&register) + carry_value;
-        let (result, overflow) = self
-            .registers
-            .get_value("A")
-            .overflowing_add(register_value);
-        self.set_flags(&result, register_value, overflow);
-        self.registers.set_value("A", result);
+        let reg_value = self.get_register_value(code) + carry_value;
+        let acc_value = u8::from(&self.a);
+        let (result, overflow) = acc_value.overflowing_add(reg_value);
+        self.set_flags(&result, reg_value, overflow);
+        self.a = result.into();
     }
 
-    fn add_operation(&mut self, register: String) {
-        let register_value = self.get_register_value(&register);
-        let (result, overflow) = self
-            .registers
-            .get_value("A")
-            .overflowing_add(register_value);
-        self.set_flags(&result, register_value, overflow);
-        self.registers.set_value("A", result);
+    fn add_operation(&mut self, code: u8) {
+        let reg_value = self.get_register_value(code);
+        let acc_value = u8::from(&self.a);
+        let (result, overflow) = acc_value.overflowing_add(reg_value);
+        self.set_flags(&result, reg_value, overflow);
+        self.a = result.into();
     }
 
-    fn sbb_operation(&mut self, register: String) {
+    fn sbb_operation(&mut self, code: u8) {
         let carry_value = if self.flags.cy { 1 } else { 0 };
-        let register_value = self.get_register_value(&register) + carry_value;
-        let (result, mut overflow) = self
-            .registers
-            .get_value("A")
-            .overflowing_sub(register_value);
-        overflow = !overflow;
-        self.set_flags(&result, register_value, overflow);
-        self.registers.set_value("A", result);
+        let reg_value = self.get_register_value(code) + carry_value;
+        let acc_value = u8::from(&self.a);
+        let (result, overflow) = acc_value.overflowing_sub(reg_value);
+        self.set_flags(&result, reg_value, !overflow);
+        self.a = result.into();
     }
 
-    fn sub_operation(&mut self, register: String) {
-        let register_value = self.get_register_value(&register);
-        let (result, mut overflow) = self
-            .registers
-            .get_value("A")
-            .overflowing_sub(register_value);
-        overflow = !overflow;
-        self.set_flags(&result, register_value, overflow);
-        self.registers.set_value("A", result);
+    fn sub_operation(&mut self, code: u8) {
+        let reg_value = self.get_register_value(code);
+        let acc_value = u8::from(&self.a);
+        let (result, overflow) = acc_value.overflowing_sub(reg_value);
+        self.set_flags(&result, reg_value, !overflow);
+        self.a = result.into();
     }
 
-    fn ana_operation(&mut self, register: String) {
-        let register_value = self.get_register_value(&register);
-        let result = self.registers.get_value("A") & register_value;
-        self.set_flags(&result, register_value, false);
-        self.registers.set_value("A", result);
+    fn ana_operation(&mut self, code: u8) {
+        let reg_value = self.get_register_value(code);
+        let acc_value = u8::from(&self.a);
+        let result = acc_value & reg_value;
+        self.set_flags(&result, reg_value, false);
+        self.a = result.into();
     }
 
-    fn xra_operation(&mut self, register: String) {
-        let register_value = self.get_register_value(&register);
-        let result = self.registers.get_value("A") ^ register_value;
-        self.set_flags(&result, register_value, false);
-        self.registers.set_value("A", result);
+    fn xra_operation(&mut self, code: u8) {
+        let reg_value = self.get_register_value(code);
+        let acc_value = u8::from(&self.a);
+        let result = acc_value ^ reg_value;
+        self.set_flags(&result, reg_value, false);
+        self.a = result.into()
     }
 
-    fn ora_operation(&mut self, register: String) {
-        let register_value = self.get_register_value(&register);
-        let result = self.registers.get_value("A") | register_value;
-        self.set_flags(&result, register_value, false);
-        self.registers.set_value("A", result);
+    fn ora_operation(&mut self, code: u8) {
+        let reg_value = self.get_register_value(code);
+        let acc_value = u8::from(&self.a);
+        let result = acc_value | reg_value;
+        self.set_flags(&result, reg_value, false);
+        self.a = result.into()
     }
 
-    fn cmp_operation(&mut self, register: String) {
-        let register_value = self.get_register_value(&register);
-        let (result, mut overflow) = self
-            .registers
-            .get_value("A")
-            .overflowing_sub(register_value);
-        overflow = !overflow;
-        self.set_flags(&result, register_value, overflow);
+    fn cmp_operation(&mut self, code: u8) {
+        let reg_value = self.get_register_value(code);
+        let acc_value = u8::from(&self.a);
+        let (result, overflow) = acc_value.overflowing_sub(reg_value);
+        self.set_flags(&result, reg_value, !overflow);
     }
 
-    fn get_register_value(&mut self, register: &String) -> u8 {
-        let mem_ref = self.get_memory_reference();
-        if register == "M" {
-            return self.memory.ram[mem_ref as usize];
-        } else {
-            return self.registers.get_value(register);
+    fn lxi_operation(&mut self, code: u8) {
+        let val1 = self.memory.ram[usize::from(self.pc + 1)].into();
+        let val2 = self.memory.ram[usize::from(self.pc + 2)].into();
+        match code {
+            0x01 => {
+                self.c = val1;
+                self.b = val2;
+            }
+            0x11 => {
+                self.e = val1;
+                self.d = val2;
+            }
+            0x21 => {
+                self.l = val1;
+                self.h = val2;
+            }
+            0x31 => {
+                let v: u16 = u16::from(val2) | (u16::from(val1) >> 8);
+                self.sp = v.into();
+            }
+            _ => panic!("Bug exists in opcode routing operation."),
         }
+        self.pc += 2;
     }
 
-    fn get_memory_reference(&mut self) -> u16 {
-        let h = self.registers.get_value("H") as u16;
-        h << 8 | self.registers.get_value("L") as u16
+    fn get_register_value(mut self, code: u8) -> u8 {
+        let register = match code % 8 {
+            0 => self.b,
+            1 => self.c,
+            2 => self.d,
+            3 => self.e,
+            4 => self.h,
+            5 => self.l,
+            6 => {
+                let mem_ref = self.get_memory_reference();
+                Register::from(self.memory.ram[mem_ref as usize])
+            }
+            7 => self.a,
+            _ => panic!("Input not valid"),
+        };
+        u8::from(&register)
+    }
+
+    fn get_memory_reference(self) -> u16 {
+        (u16::from(self.h) << 8) | u16::from(self.l)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Cpu;
+    use super::*;
     use rand::prelude::*;
 
     #[test]
     fn test_new_and_init() {
-        let cpu = Cpu::new_and_init();
+        let cpu = Cpu::new();
         let addr1 = get_random_number(0xFFFF) as usize;
         let addr2 = get_random_number(0xFFFF) as usize;
         let addr3 = get_random_number(0xFFFF) as usize;
 
-        assert_eq!(cpu.registers.pc, 0);
+        assert_eq!(cpu.pc, 0);
         assert_eq!(cpu.memory.ram[addr1], 0);
         assert_eq!(cpu.memory.ram[addr2], 0);
         assert_eq!(cpu.memory.ram[addr3], 0);
@@ -707,7 +672,7 @@ mod tests {
 
     #[test]
     fn test_load_rom_into_memory() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let mut rom: [u8; 0x7FF] = [0; 0x7FF];
         let addr1 = get_random_number(0x7FF) as usize;
         let addr2 = get_random_number(0x7FF) as usize;
@@ -724,7 +689,7 @@ mod tests {
 
     #[test]
     fn test_sets_parity_flag_if_even() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let result = cpu.sets_parity_flag(&28);
 
         assert_eq!(result, true);
@@ -732,7 +697,7 @@ mod tests {
 
     #[test]
     fn test_sets_parity_flag_if_odd() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let result = cpu.sets_parity_flag(&27);
 
         assert_eq!(result, false);
@@ -740,7 +705,7 @@ mod tests {
 
     #[test]
     fn test_sets_zero_flag_if_zero() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let result = cpu.sets_zero_flag(&0);
 
         assert_eq!(result, true);
@@ -748,7 +713,7 @@ mod tests {
 
     #[test]
     fn test_sets_zero_flag_if_non_zero() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let result = cpu.sets_zero_flag(&190);
 
         assert_eq!(result, false);
@@ -756,7 +721,7 @@ mod tests {
 
     #[test]
     fn test_sets_sign_flag_if_last_bit_set() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let result = cpu.sets_sign_flag(&0x85);
 
         assert_eq!(result, true);
@@ -764,7 +729,7 @@ mod tests {
 
     #[test]
     fn test_sets_sign_flag_if_last_bit_unset() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let result = cpu.sets_sign_flag(&0x14);
 
         assert_eq!(result, false);
@@ -772,7 +737,7 @@ mod tests {
 
     #[test]
     fn test_sets_aux_carry_flag_if_carry_out_of_bit_3() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let v1 = 0x2E;
         let v2 = 0x74;
         let b3_1 = cpu.is_b3_set(&v1);
@@ -785,7 +750,7 @@ mod tests {
 
     #[test]
     fn test_sets_aux_carry_flag_if_last_word_bit_unset() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let v1 = 0x1;
         let v2 = 0x2;
         let b3_1 = cpu.is_b3_set(&v1);
@@ -798,10 +763,10 @@ mod tests {
 
     #[test]
     fn test_set_flags() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let v1: u8 = get_random_number(0xFF) as u8;
         let v2: u8 = get_random_number(0xFF) as u8;
-        cpu.registers.set_value("A", v1);
+        cpu.a = v1.into();
         let (b1, b2) = cpu.get_b3_vals(&v2);
         let (result, overflow) = v1.overflowing_add(v2);
         cpu.set_flags(&result, v2, overflow);
@@ -830,25 +795,25 @@ mod tests {
 
     #[test]
     fn test_add_operation() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let val = get_random_number(0xFF) as u8;
-        cpu.registers.set_value("B", val);
-        cpu.add_operation(String::from("B"));
+        cpu.b = val.into();
+        cpu.add_operation(0x80);
 
-        assert_eq!(cpu.registers.get_value("A"), val);
+        assert_eq!(cpu.a, val);
     }
 
     #[test]
     fn test_opcode_00_nop() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.pc, 0x1);
+        assert_eq!(cpu.pc, 0x1);
     }
 
     #[test]
     fn test_opcode_01_lxi_bc() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let val1 = get_random_number(0xFF) as u8;
         let val2 = get_random_number(0xFF) as u8;
         cpu.memory.ram[0x0] = 0x01;
@@ -856,192 +821,192 @@ mod tests {
         cpu.memory.ram[0x2] = val2;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.get_value("B"), val2);
-        assert_eq!(cpu.registers.get_value("C"), val1);
+        assert_eq!(cpu.b, val2);
+        assert_eq!(cpu.c, val1);
     }
 
     #[test]
     fn test_opcode_85_add_l() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let val = get_random_number(0xFF) as u8;
         let pc = get_random_number(0xFFFF);
-        cpu.registers.pc = pc;
+        cpu.pc = pc.into();
         cpu.memory.ram[pc as usize] = 0x85;
-        cpu.registers.set_value("L", val);
+        cpu.l = val.into();
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.get_value("A"), val);
+        assert_eq!(cpu.a, val);
     }
 
     #[test]
     fn test_opcode_88_adc_b_with_carry() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let val = get_random_number(0xFF) as u8;
         let pc = get_random_number(0xFFFF);
-        cpu.registers.pc = pc;
+        cpu.pc = pc.into();
         cpu.memory.ram[pc as usize] = 0x88;
-        cpu.registers.set_value("B", val);
+        cpu.b = val.into();
         cpu.flags.cy = true;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.get_value("A"), val + 1);
+        assert_eq!(cpu.a, val + 1);
     }
 
     #[test]
     fn test_opcode_8b_adc_e_without_carry() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let val = get_random_number(0xFF) as u8;
         let pc = get_random_number(0xFFFF);
-        cpu.registers.pc = pc;
+        cpu.pc = pc.into();
         cpu.memory.ram[pc as usize] = 0x8B;
-        cpu.registers.set_value("E", val);
+        cpu.e = val.into();
         cpu.flags.cy = false;
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.get_value("A"), val);
+        assert_eq!(cpu.a, val);
     }
 
     #[test]
     fn test_opcode_92_sub_d_without_borrow() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let val = get_random_number(0xFF) as u8;
         let base = 0xFF;
         let pc = get_random_number(0xFFFF);
         let result = base - val;
-        cpu.registers.pc = pc;
+        cpu.pc = pc.into();
         cpu.memory.ram[pc as usize] = 0x92;
-        cpu.registers.set_value("A", base);
-        cpu.registers.set_value("D", val);
+        cpu.a = base.into();
+        cpu.d = val.into();
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.get_value("A"), result);
+        assert_eq!(cpu.a, result);
     }
 
     #[test]
     fn test_opcode_96_sub_m_with_borrow() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let val1 = get_random_number(0xFF) as u8;
         let val2 = get_random_number(0xFF) as u8;
         let val = get_random_number(0xFF) as u8;
         let base: u8 = 0x0;
         let pc = get_random_number(0xFFFF);
         let result = base.wrapping_sub(val);
-        cpu.registers.pc = pc;
+        cpu.pc = pc.into();
         cpu.memory.ram[pc as usize] = 0x96;
         cpu.memory.ram[((val1 as u16) << 8 | val2 as u16) as usize] = val;
-        cpu.registers.set_value("A", base);
-        cpu.registers.set_value("H", val1);
-        cpu.registers.set_value("L", val2);
+        cpu.a = base.into();
+        cpu.h = val1.into();
+        cpu.l = val2.into();
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.get_value("A"), result);
+        assert_eq!(cpu.a, result);
     }
 
     #[test]
     fn test_opcode_9d_sbb_l_without_borrow() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let val = get_random_number(0xFF) as u8;
         let base = 0xFF;
         let pc = get_random_number(0xFFFF);
         let result = base - val;
-        cpu.registers.pc = pc;
+        cpu.pc = pc.into();
         cpu.memory.ram[pc as usize] = 0x95;
-        cpu.registers.set_value("A", base);
-        cpu.registers.set_value("L", val);
+        cpu.a = base.into();
+        cpu.l = val.into();
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.get_value("A"), result);
+        assert_eq!(cpu.a, result);
     }
 
     #[test]
     fn test_opcode_9f_sbb_a_with_borrow() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let val = get_random_number(0xFF) as u8;
         let pc = get_random_number(0xFFFF);
-        cpu.registers.pc = pc;
+        cpu.pc = pc.into();
         cpu.memory.ram[pc as usize] = 0x97;
-        cpu.registers.set_value("A", val);
+        cpu.a = val.into();
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.get_value("A"), 0);
+        assert_eq!(cpu.a, 0);
     }
 
     #[test]
     fn test_opcode_a3_ana_e() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let reg_val = get_random_number(0xFF) as u8;
         let acc_val = get_random_number(0xFF) as u8;
         let pc = get_random_number(0xFFFF);
         let result = reg_val & acc_val;
-        cpu.registers.pc = pc;
+        cpu.pc = pc.into();
         cpu.memory.ram[pc as usize] = 0xA3;
-        cpu.registers.set_value("E", reg_val);
-        cpu.registers.set_value("A", acc_val);
+        cpu.e = reg_val.into();
+        cpu.a = acc_val.into();
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.get_value("A"), result);
+        assert_eq!(cpu.a, result);
     }
 
     #[test]
     fn test_opcode_aa_xra_d() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let reg_val = get_random_number(0xFF) as u8;
         let acc_val = get_random_number(0xFF) as u8;
         let pc = get_random_number(0xFFFF);
         let result = reg_val ^ acc_val;
-        cpu.registers.pc = pc;
+        cpu.pc = pc.into();
         cpu.memory.ram[pc as usize] = 0xAA;
-        cpu.registers.set_value("D", reg_val);
-        cpu.registers.set_value("A", acc_val);
+        cpu.d = reg_val.into();
+        cpu.a = acc_val.into();
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.get_value("A"), result);
+        assert_eq!(cpu.a, result);
     }
 
     #[test]
     fn test_opcode_b5_ora_l() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let reg_val = get_random_number(0xFF) as u8;
         let acc_val = get_random_number(0xFF) as u8;
         let pc = get_random_number(0xFFFF);
         let result = reg_val | acc_val;
-        cpu.registers.pc = pc;
+        cpu.pc = pc.into();
         cpu.memory.ram[pc as usize] = 0xB5;
-        cpu.registers.set_value("L", reg_val);
-        cpu.registers.set_value("A", acc_val);
+        cpu.l = reg_val.into();
+        cpu.a = acc_val.into();
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.get_value("A"), result);
+        assert_eq!(cpu.a, result);
     }
 
     #[test]
     fn test_opcode_b9_cmp_c_not_equal() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let reg_val = get_random_number(0xFF) as u8;
         let acc_val = get_random_number(0xFF) as u8;
         let pc = get_random_number(0xFFFF);
-        cpu.registers.pc = pc;
+        cpu.pc = pc.into();
         cpu.memory.ram[pc as usize] = 0xB9;
-        cpu.registers.set_value("C", reg_val);
-        cpu.registers.set_value("A", acc_val);
+        cpu.c = reg_val.into();
+        cpu.a = acc_val.into();
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.get_value("A"), acc_val);
+        assert_eq!(cpu.a, acc_val);
         assert_eq!(cpu.flags.z, false);
     }
 
     #[test]
     fn test_opcode_b9_cmp_c_equal() {
-        let mut cpu = Cpu::new_and_init();
+        let mut cpu = Cpu::new();
         let reg_val = get_random_number(0xFF) as u8;
         let pc = get_random_number(0xFFFF);
-        cpu.registers.pc = pc;
+        cpu.pc = pc.into();
         cpu.memory.ram[pc as usize] = 0xB9;
-        cpu.registers.set_value("C", reg_val);
-        cpu.registers.set_value("A", reg_val);
+        cpu.c = reg_val.into();
+        cpu.a = reg_val.into();
         cpu.execute_opcode();
 
-        assert_eq!(cpu.registers.get_value("A"), reg_val);
+        assert_eq!(cpu.a, reg_val);
         assert_eq!(cpu.flags.z, true);
     }
 

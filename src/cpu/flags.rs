@@ -1,3 +1,4 @@
+#[derive(Clone, Copy, Default)]
 pub struct Flags {
     pub z: bool,
     pub s: bool,

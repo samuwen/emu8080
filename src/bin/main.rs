@@ -5,7 +5,7 @@ use std::io::prelude::*;
 fn main() {
     env_logger::init();
 
-    let mut cpu = Cpu::new_and_init();
+    let mut cpu = Cpu::new();
     read_space_invaders_into_memory(&mut cpu);
     for _ in 0x0..0x15 {
         cpu.execute_opcode();

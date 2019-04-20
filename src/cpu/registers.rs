@@ -1,29 +1,39 @@
-pub struct Registers {
-    pub pc: u16,
-    pub register: [u8; 7],
+#[derive(Clone, Copy, Default, Debug)]
+// Tuple struct
+pub struct Register(u8);
+
+impl From<u16> for Register {
+    fn from(t: u16) -> Self {
+        Register(t as u8)
+    }
 }
 
-impl Registers {
-    pub fn get_value(&self, register: &str) -> u8 {
-        let index = self.get_index(register);
-        self.register[index]
+impl From<u8> for Register {
+    fn from(t: u8) -> Self {
+        Register(t)
     }
+}
 
-    pub fn set_value(&mut self, register: &str, val: u8) {
-        let index = self.get_index(register);
-        self.register[index] = val;
+impl From<usize> for Register {
+    fn from(t: usize) -> Self {
+        Register(t as u8)
     }
+}
 
-    fn get_index(&self, register: &str) -> usize {
-        match register {
-            "B" => 0,
-            "C" => 1,
-            "D" => 2,
-            "E" => 3,
-            "H" => 4,
-            "L" => 5,
-            "A" => 6,
-            _ => panic!("Invalid index"),
-        }
+impl From<&Register> for u8 {
+    fn from(t: &Register) -> Self {
+        t.0
+    }
+}
+
+impl From<Register> for u16 {
+    fn from(t: Register) -> Self {
+        t.0 as u16
+    }
+}
+
+impl PartialEq<u8> for Register {
+    fn eq(&self, other: &u8) -> bool {
+        &self.0 == other
     }
 }
