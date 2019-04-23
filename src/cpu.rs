@@ -51,17 +51,13 @@ impl Cpu {
             0x04 | 0x0C | 0x14 | 0x1C | 0x24 | 0x2C | 0x34 | 0x3C => self.inr_operation(op.code),
             0x05 | 0x0D | 0x15 | 0x1D | 0x25 | 0x2D | 0x35 | 0x3D => self.dcr_operation(op.code),
             0x06 | 0x0E | 0x16 | 0x1E | 0x26 | 0x2E | 0x36 | 0x3E => self.mvi_operation(op.code),
-            0x07 => self.rlc(op.code),
+            0x07 => self.rlc(),
             0x09 | 0x19 | 0x29 | 0x39 => self.dad_operation(op.code),
-            0x0F => self.rrc(op.code),
-            // // 0x09 => debug!("{:x} DAD   B", self.registers.pc),
-            // // 0x0A => debug!("{:x} LDAX  B", self.registers.pc),
-            // // 0x0B => debug!("{:x} DCX   B", self.registers.pc),
-            // // 0x12 => debug!("{:x} STAX  D", self.registers.pc),
+            0x0F => self.rrc(),
+            0x0A | 0x1A => self.ldax_operation(op.code),
+            0x0B | 0x1B | 0x2B | 0x3B => self.dcx_operation(op.code),
+            0x17 => self.ral(),
             // // 0x17 => debug!("{:x} RAL", self.registers.pc),
-            // // 0x19 => debug!("{:x} DAD   D", self.registers.pc),
-            // // 0x1A => debug!("{:x} LDAX  D", self.registers.pc),
-            // // 0x1B => debug!("{:x} DCX   D", self.registers.pc),
             // // 0x1F => debug!("{:x} RAR", self.registers.pc),
             // // 0x22 => {
             // //     debug!(
@@ -73,7 +69,6 @@ impl Cpu {
             // //     self.registers.pc += 2
             // // }
             // // 0x27 => debug!("{:x} DAA", self.registers.pc),
-            // // 0x29 => debug!("{:x} DAD   H", self.registers.pc),
             // // 0x2A => {
             // //     debug!(
             // //         "{:x} LHLD     {:x}  {:x}",
@@ -83,7 +78,6 @@ impl Cpu {
             // //     );
             // //     self.registers.pc += 2
             // // }
-            // // 0x2B => debug!("{:x} DCX   H", self.registers.pc),
             // // 0x2F => debug!("{:x} CMA", self.registers.pc),
             // // 0x32 => {
             // //     debug!(
@@ -95,7 +89,6 @@ impl Cpu {
             // //     self.registers.pc += 2
             // // }
             // // 0x37 => debug!("{:x} STC", self.registers.pc),
-            // // 0x39 => debug!("{:x} DAD  SP", self.registers.pc),
             // // 0x3A => {
             // //     debug!(
             // //         "{:x} LDA      {:x}  {:x}",
@@ -105,7 +98,6 @@ impl Cpu {
             // //     );
             // //     self.registers.pc += 2
             // // }
-            // // 0x3B => debug!("{:x} DCX  SP", self.registers.pc),
             // // 0x3F => debug!("{:x} CMC", self.registers.pc),
             // // 0x40 => debug!("{:x} MOV  B,B", self.registers.pc),
             // // 0x41 => debug!("{:x} MOV  B,C", self.registers.pc),
@@ -413,13 +405,13 @@ impl Cpu {
     }
 
     #[inline]
-    fn set_flags(&mut self, result: &u8, reg_value: u8, overflow: bool) {
-        let aux_vals: (bool, bool) = self.get_b3_vals(&reg_value);
+    fn set_flags(&mut self, result: &u8, reg_value: u8, op: u8, overflow: bool) {
+        let aux_vals: (bool, bool) = self.get_b3_vals(&reg_value, &op);
         self.flags.p = self.sets_parity_flag(&result);
         self.flags.z = self.sets_zero_flag(&result);
         self.flags.s = self.sets_sign_flag(&result);
         self.flags.ac = self.sets_aux_carry_flag(aux_vals.0, aux_vals.1, &result);
-        self.flags.cy = overflow;
+        self.flags.cy = if self.flags.cy { !overflow } else { overflow };
     }
 
     #[inline]
@@ -446,9 +438,8 @@ impl Cpu {
     }
 
     #[inline]
-    fn get_b3_vals(mut self, register: &u8) -> (bool, bool) {
-        let a_val = self.a.into();
-        let b3_1 = self.is_b3_set(&a_val);
+    fn get_b3_vals(mut self, register: &u8, op: &u8) -> (bool, bool) {
+        let b3_1 = self.is_b3_set(&op);
         let b3_2 = self.is_b3_set(&register);
         (b3_1, b3_2)
     }
@@ -461,18 +452,16 @@ impl Cpu {
     fn adc_operation(&mut self, code: u8) {
         let carry_value = if self.flags.cy { 1 } else { 0 };
         self.a = self.update_register_with_overflow(
-            self.get_register(code),
-            self.get_register_value(code) + carry_value,
-            false,
+            self.a,
+            self.get_reg_value(code) + carry_value,
             &overflowing_add_u8,
         );
     }
 
     fn add_operation(&mut self, code: u8) {
         self.a = self.update_register_with_overflow(
-            self.get_register(code),
-            self.get_register_value(code),
-            false,
+            self.a,
+            self.get_reg_value(code),
             &overflowing_add_u8,
         );
     }
@@ -480,51 +469,37 @@ impl Cpu {
     fn sbb_operation(&mut self, code: u8) {
         let carry_value = if self.flags.cy { 1 } else { 0 };
         self.a = self.update_register_with_overflow(
-            self.get_register(code),
-            self.get_register_value(code) + carry_value,
-            true,
-            &overflowing_sub_u8,
+            self.a,
+            !(self.get_reg_value(code) + carry_value) + 1,
+            &overflowing_add_u8,
         );
     }
 
     fn sub_operation(&mut self, code: u8) {
         self.a = self.update_register_with_overflow(
-            self.get_register(code),
-            self.get_register_value(code),
-            false,
-            &overflowing_sub_u8,
+            self.a,
+            !self.get_reg_value(code) + 1,
+            &overflowing_add_u8,
         );
     }
 
     fn ana_operation(&mut self, code: u8) {
-        self.a = self.update_register_no_overflow(
-            self.get_register(code),
-            self.get_register_value(code),
-            &logical_and,
-        );
+        self.a = self.update_register_no_overflow(self.a, self.get_reg_value(code), &logical_and);
     }
 
     fn xra_operation(&mut self, code: u8) {
-        self.a = self.update_register_no_overflow(
-            self.get_register(code),
-            self.get_register_value(code),
-            &logical_xor,
-        );
+        self.a = self.update_register_no_overflow(self.a, self.get_reg_value(code), &logical_xor);
     }
 
     fn ora_operation(&mut self, code: u8) {
-        self.a = self.update_register_no_overflow(
-            self.get_register(code),
-            self.get_register_value(code),
-            &logical_or,
-        );
+        self.a = self.update_register_no_overflow(self.a, self.get_reg_value(code), &logical_or);
     }
 
     fn cmp_operation(&mut self, code: u8) {
-        let reg_value = self.get_register_value(code);
+        let reg_value = !self.get_reg_value(code) + 1;
         let acc_value: u8 = self.a.into();
-        let (result, overflow) = acc_value.overflowing_sub(reg_value);
-        self.set_flags(&result, reg_value, !overflow);
+        let (result, overflow) = acc_value.overflowing_add(reg_value);
+        self.set_flags(&result, reg_value, acc_value, !overflow);
     }
 
     fn lxi_operation(&mut self, code: u8) {
@@ -581,7 +556,7 @@ impl Cpu {
             0x33 => {
                 let val: u16 = self.sp.into();
                 let result = val.wrapping_add(1);
-                self.sp = Pointer::from(result);
+                self.sp = result.into();
             }
             _ => panic!("Bug exists in opcode routing"),
         }
@@ -589,70 +564,42 @@ impl Cpu {
 
     fn inr_operation(&mut self, code: u8) {
         match code {
-            0x04 => {
-                self.b = self.update_register_with_overflow(self.b, 1, true, &overflowing_add_u8)
-            }
-            0x0C => {
-                self.c = self.update_register_with_overflow(self.c, 1, true, &overflowing_add_u8)
-            }
-            0x14 => {
-                self.d = self.update_register_with_overflow(self.d, 1, true, &overflowing_add_u8)
-            }
-            0x1C => {
-                self.e = self.update_register_with_overflow(self.e, 1, true, &overflowing_add_u8)
-            }
-            0x24 => {
-                self.h = self.update_register_with_overflow(self.h, 1, true, &overflowing_add_u8)
-            }
-            0x2C => {
-                self.l = self.update_register_with_overflow(self.l, 1, true, &overflowing_add_u8)
-            }
+            0x04 => self.b = self.update_register_with_overflow(self.b, 1, &overflowing_add_u8),
+            0x0C => self.c = self.update_register_with_overflow(self.c, 1, &overflowing_add_u8),
+            0x14 => self.d = self.update_register_with_overflow(self.d, 1, &overflowing_add_u8),
+            0x1C => self.e = self.update_register_with_overflow(self.e, 1, &overflowing_add_u8),
+            0x24 => self.h = self.update_register_with_overflow(self.h, 1, &overflowing_add_u8),
+            0x2C => self.l = self.update_register_with_overflow(self.l, 1, &overflowing_add_u8),
             0x34 => {
                 let mem_ref = self.get_reg_pair_value(self.l, self.h);
                 let value = self.memory.ram[mem_ref as usize];
                 let (result, overflow) = value.overflowing_add(1);
-                self.set_flags(&result, value, overflow);
+                self.set_flags(&result, value, 1, overflow);
                 self.l = (result & 0xFF).into();
                 self.h = (result & 0x00FF).into();
             }
-            0x3C => {
-                self.a = self.update_register_with_overflow(self.a, 1, true, &overflowing_add_u8)
-            }
+            0x3C => self.a = self.update_register_with_overflow(self.a, 1, &overflowing_add_u8),
             _ => panic!("Bug exists in opcode routing"),
         }
     }
 
     fn dcr_operation(&mut self, code: u8) {
         match code {
-            0x05 => {
-                self.b = self.update_register_with_overflow(self.b, 1, true, &overflowing_sub_u8)
-            }
-            0x0D => {
-                self.c = self.update_register_with_overflow(self.c, 1, true, &overflowing_sub_u8)
-            }
-            0x15 => {
-                self.d = self.update_register_with_overflow(self.d, 1, true, &overflowing_sub_u8)
-            }
-            0x1D => {
-                self.e = self.update_register_with_overflow(self.e, 1, true, &overflowing_sub_u8)
-            }
-            0x25 => {
-                self.h = self.update_register_with_overflow(self.h, 1, true, &overflowing_sub_u8)
-            }
-            0x2D => {
-                self.l = self.update_register_with_overflow(self.l, 1, true, &overflowing_sub_u8)
-            }
+            0x05 => self.b = self.update_register_with_overflow(self.b, 1, &overflowing_sub_u8),
+            0x0D => self.c = self.update_register_with_overflow(self.c, 1, &overflowing_sub_u8),
+            0x15 => self.d = self.update_register_with_overflow(self.d, 1, &overflowing_sub_u8),
+            0x1D => self.e = self.update_register_with_overflow(self.e, 1, &overflowing_sub_u8),
+            0x25 => self.h = self.update_register_with_overflow(self.h, 1, &overflowing_sub_u8),
+            0x2D => self.l = self.update_register_with_overflow(self.l, 1, &overflowing_sub_u8),
             0x35 => {
                 let mem_ref = self.get_reg_pair_value(self.l, self.h);
                 let value = self.memory.ram[mem_ref as usize];
                 let (result, overflow) = value.overflowing_sub(1);
-                self.set_flags(&result, value, !overflow);
+                self.set_flags(&result, value, 1, !overflow);
                 self.l = (result & 0xFF).into();
                 self.h = (result & 0x00FF).into();
             }
-            0x3D => {
-                self.a = self.update_register_with_overflow(self.a, 1, true, &overflowing_sub_u8)
-            }
+            0x3D => self.a = self.update_register_with_overflow(self.a, 1, &overflowing_sub_u8),
             _ => panic!("Bug exists in opcode routing"),
         }
     }
@@ -685,6 +632,10 @@ impl Cpu {
             self.flags.cy = false;
             self.a = (temp | 0).into();
         }
+    }
+
+    fn ral(&mut self) {
+        // ral
     }
 
     fn rrc(&mut self) {
@@ -736,14 +687,51 @@ impl Cpu {
             }
             0x39 => {
                 let hl_reg = self.get_reg_pair_value(self.h, self.l);
-                let (x, y) = self.update_register_pair_overflow(
-                    (self.sp & 0xFF).into(),
-                    (self.sp & 0x00FF).into(),
-                    hl_reg,
-                    &overflowing_add_u16,
-                );
+                let (a, b) = Cpu::return_split_registers(self.sp.into());
+                let (x, y) = self.update_register_pair_overflow(a, b, hl_reg, &overflowing_add_u16);
                 self.h = x;
                 self.l = y;
+            }
+            _ => panic!("Bug in opcode router"),
+        }
+    }
+
+    fn ldax_operation(&mut self, code: u8) {
+        match code {
+            0x0A => {
+                let val = self.get_reg_pair_value(self.b, self.c);
+                self.a = self.memory.ram[val as usize].into();
+            }
+            0x1A => {
+                let val = self.get_reg_pair_value(self.d, self.e);
+                self.a = self.memory.ram[val as usize].into();
+            }
+            _ => panic!("Bug in opcode router"),
+        }
+    }
+
+    fn dcx_operation(&mut self, code: u8) {
+        match code {
+            0x0B => {
+                let (x, y) = self.update_register_pair(self.b, self.c, 1, &wrapping_sub);
+                self.b = x.into();
+                self.c = y.into();
+            }
+            0x1B => {
+                let (x, y) = self.update_register_pair(self.d, self.e, 1, &wrapping_sub);
+                self.b = x.into();
+                self.c = y.into();
+            }
+            0x2B => {
+                let (x, y) = self.update_register_pair(self.h, self.l, 1, &wrapping_sub);
+                self.b = x.into();
+                self.c = y.into();
+            }
+            0x3B => {
+                let (a, b) = Cpu::return_split_registers(self.sp.into());
+                let (x, y) = self.update_register_pair(a, b, 1, &wrapping_sub);
+                self.b = x.into();
+                self.c = y.into();
             }
             _ => panic!("Bug in opcode router"),
         }
@@ -753,13 +741,11 @@ impl Cpu {
         &mut self,
         reg: Register,
         op: u8,
-        invert: bool,
         f: &Fn(u8, u8) -> (u8, bool),
     ) -> Register {
         let val: u8 = reg.into();
         let (result, overflow) = f(val, op);
-        let over = if invert { !overflow } else { overflow };
-        self.set_flags(&result, reg.into(), over);
+        self.set_flags(&result, reg.into(), op, overflow);
         result.into()
     }
 
@@ -771,7 +757,7 @@ impl Cpu {
     ) -> Register {
         let val: u8 = reg.into();
         let result = f(val, op);
-        self.set_flags(&result, reg.into(), false);
+        self.set_flags(&result, reg.into(), op, false);
         result.into()
     }
 
@@ -794,7 +780,7 @@ impl Cpu {
         op: u16,
         f: &Fn(u16, u16) -> (u16, bool),
     ) -> (Register, Register) {
-        let reg_val = self.get_reg_pair_value(self.b, self.c);
+        let reg_val = self.get_reg_pair_value(msb, lsb);
         let (result, overflow) = f(op, reg_val);
         self.flags.cy = if overflow { true } else { false };
         Cpu::return_split_registers(result)
@@ -804,7 +790,7 @@ impl Cpu {
         ((val & 0xFF).into(), (val & 0x00FF).into())
     }
 
-    fn get_register_value(self, code: u8) -> u8 {
+    fn get_reg_value(self, code: u8) -> u8 {
         self.get_register(code).into()
     }
 
@@ -840,6 +826,10 @@ fn overflowing_add_u16(val: u16, operand: u16) -> (u16, bool) {
 
 fn wrapping_add(val: u16, operand: u16) -> u16 {
     val.wrapping_add(operand)
+}
+
+fn wrapping_sub(val: u16, operand: u16) -> u16 {
+    val.wrapping_sub(operand)
 }
 
 // Carries are inverted in subtraction
@@ -980,9 +970,9 @@ mod tests {
         let v1: u8 = get_random_number(0xFF) as u8;
         let v2: u8 = get_random_number(0xFF) as u8;
         cpu.a = v1.into();
-        let (b1, b2) = cpu.get_b3_vals(&v2);
+        let (b1, b2) = cpu.get_b3_vals(&v2, &v1);
         let (result, overflow) = v1.overflowing_add(v2);
-        cpu.set_flags(&result, v2, overflow);
+        cpu.set_flags(&result, v2, v1, overflow);
         let p = if result % 2 == 0 { true } else { false };
         let s = if (result & 0x80) >> 7 == 1 {
             true
@@ -1006,221 +996,173 @@ mod tests {
         test_flag_values(&cpu, p, s, z, cy, ac);
     }
 
+    // opcode tests
+
+    #[test]
+    fn test_lxi_operation() {
+        let mut cpu = Cpu::new();
+        let opcode = 0x11;
+        let rand_addr = 0x103;
+        cpu.pc = (rand_addr as u16).into();
+        cpu.memory.ram[rand_addr] = opcode;
+        cpu.memory.ram[rand_addr + 1] = 0x3;
+        cpu.memory.ram[rand_addr + 2] = 0x1;
+        cpu.lxi_operation(opcode);
+
+        assert_eq!(cpu.d, 0x1);
+        assert_eq!(cpu.e, 0x3);
+    }
+
     #[test]
     fn test_add_operation() {
         let mut cpu = Cpu::new();
-        let val = get_random_number(0xFF) as u8;
+        let val: u8 = 0x2E;
         cpu.b = val.into();
+        let acc_val: u8 = 0x6C;
+        cpu.a = acc_val.into();
         cpu.add_operation(0x80);
 
-        assert_eq!(cpu.a, val);
+        assert_eq!(cpu.a, 0x9A);
     }
 
     #[test]
-    fn test_opcode_00_nop() {
-        let cpu = Cpu::new();
-        cpu.execute_opcode();
-
-        assert_eq!(cpu.pc, 0x1);
-    }
-
-    #[test]
-    fn test_opcode_01_lxi_bc() {
+    fn test_adc_operation_not_set() {
         let mut cpu = Cpu::new();
-        let val1 = get_random_number(0xFF) as u8;
-        let val2 = get_random_number(0xFF) as u8;
-        cpu.memory.ram[0x0] = 0x01;
-        cpu.memory.ram[0x1] = val1;
-        cpu.memory.ram[0x2] = val2;
-        cpu.execute_opcode();
-
-        assert_eq!(cpu.b, val2);
-        assert_eq!(cpu.c, val1);
-    }
-
-    #[test]
-    fn test_opcode_85_add_l() {
-        let mut cpu = Cpu::new();
-        let val = get_random_number(0xFF) as u8;
-        let pc = get_random_number(0xFFFF);
-        cpu.pc = pc.into();
-        cpu.memory.ram[pc as usize] = 0x85;
-        cpu.l = val.into();
-        cpu.execute_opcode();
-
-        assert_eq!(cpu.a, val);
-    }
-
-    #[test]
-    fn test_opcode_88_adc_b_with_carry() {
-        let mut cpu = Cpu::new();
-        let val = get_random_number(0xFF) as u8;
-        let pc = get_random_number(0xFFFF);
-        cpu.pc = pc.into();
-        cpu.memory.ram[pc as usize] = 0x88;
+        let val: u8 = 0x3D;
         cpu.b = val.into();
+        let acc_val: u8 = 0x42;
+        cpu.a = acc_val.into();
+        cpu.adc_operation(0x88);
+
+        assert_eq!(cpu.a, 0x7F);
+    }
+
+    #[test]
+    fn test_adc_operation_set() {
+        let mut cpu = Cpu::new();
         cpu.flags.cy = true;
-        cpu.execute_opcode();
+        let val: u8 = 0x3D;
+        cpu.b = val.into();
+        let acc_val: u8 = 0x42;
+        cpu.a = acc_val.into();
+        cpu.adc_operation(0x88);
 
-        assert_eq!(cpu.a, val + 1);
+        assert_eq!(cpu.a, 0x80);
     }
 
     #[test]
-    fn test_opcode_8b_adc_e_without_carry() {
+    fn test_sub_operation() {
         let mut cpu = Cpu::new();
-        let val = get_random_number(0xFF) as u8;
-        let pc = get_random_number(0xFFFF);
-        cpu.pc = pc.into();
-        cpu.memory.ram[pc as usize] = 0x8B;
-        cpu.e = val.into();
-        cpu.flags.cy = false;
-        cpu.execute_opcode();
+        cpu.flags.cy = true;
+        let val: u8 = 0x3E;
+        cpu.b = val.into();
+        let acc_val: u8 = 0x3E;
+        cpu.a = acc_val.into();
+        cpu.sub_operation(0x80);
 
-        assert_eq!(cpu.a, val);
+        assert_eq!(cpu.a, 0x0);
+        assert_eq!(cpu.flags.ac, true);
+        assert_eq!(cpu.flags.cy, false);
+        assert_eq!(cpu.flags.p, true);
+        assert_eq!(cpu.flags.z, true);
     }
 
     #[test]
-    fn test_opcode_92_sub_d_without_borrow() {
+    fn test_sbb_operation_not_set() {
         let mut cpu = Cpu::new();
-        let val = get_random_number(0xFF) as u8;
-        let base = 0xFF;
-        let pc = get_random_number(0xFFFF);
-        let result = base - val;
-        cpu.pc = pc.into();
-        cpu.memory.ram[pc as usize] = 0x92;
-        cpu.a = base.into();
-        cpu.d = val.into();
-        cpu.execute_opcode();
-
-        assert_eq!(cpu.a, result);
-    }
-
-    #[test]
-    fn test_opcode_96_sub_m_with_borrow() {
-        let mut cpu = Cpu::new();
-        let val1 = get_random_number(0xFF) as u8;
-        let val2 = get_random_number(0xFF) as u8;
-        let val = get_random_number(0xFF) as u8;
-        let base: u8 = 0x0;
-        let pc = get_random_number(0xFFFF);
-        let result = base.wrapping_sub(val);
-        cpu.pc = pc.into();
-        cpu.memory.ram[pc as usize] = 0x96;
-        cpu.memory.ram[((val1 as u16) << 8 | val2 as u16) as usize] = val;
-        cpu.a = base.into();
-        cpu.h = val1.into();
-        cpu.l = val2.into();
-        cpu.execute_opcode();
-
-        assert_eq!(cpu.a, result);
-    }
-
-    #[test]
-    fn test_opcode_9d_sbb_l_without_borrow() {
-        let mut cpu = Cpu::new();
-        let val = get_random_number(0xFF) as u8;
-        let base = 0xFF;
-        let pc = get_random_number(0xFFFF);
-        let result = base - val;
-        cpu.pc = pc.into();
-        cpu.memory.ram[pc as usize] = 0x95;
-        cpu.a = base.into();
+        let val: u8 = 0x2;
         cpu.l = val.into();
-        cpu.execute_opcode();
-
-        assert_eq!(cpu.a, result);
-    }
-
-    #[test]
-    fn test_opcode_9f_sbb_a_with_borrow() {
-        let mut cpu = Cpu::new();
-        let val = get_random_number(0xFF) as u8;
-        let pc = get_random_number(0xFFFF);
-        cpu.pc = pc.into();
-        cpu.memory.ram[pc as usize] = 0x97;
-        cpu.a = val.into();
-        cpu.execute_opcode();
-
-        assert_eq!(cpu.a, 0);
-    }
-
-    #[test]
-    fn test_opcode_a3_ana_e() {
-        let mut cpu = Cpu::new();
-        let reg_val = get_random_number(0xFF) as u8;
-        let acc_val = get_random_number(0xFF) as u8;
-        let pc = get_random_number(0xFFFF);
-        let result = reg_val & acc_val;
-        cpu.pc = pc.into();
-        cpu.memory.ram[pc as usize] = 0xA3;
-        cpu.e = reg_val.into();
+        let acc_val: u8 = 0x4;
         cpu.a = acc_val.into();
-        cpu.execute_opcode();
+        cpu.sbb_operation(0x9D);
 
-        assert_eq!(cpu.a, result);
+        assert_eq!(cpu.a, 0x2);
     }
 
     #[test]
-    fn test_opcode_aa_xra_d() {
+    fn test_sbb_operation_set() {
         let mut cpu = Cpu::new();
-        let reg_val = get_random_number(0xFF) as u8;
-        let acc_val = get_random_number(0xFF) as u8;
-        let pc = get_random_number(0xFFFF);
-        let result = reg_val ^ acc_val;
-        cpu.pc = pc.into();
-        cpu.memory.ram[pc as usize] = 0xAA;
-        cpu.d = reg_val.into();
+        cpu.flags.cy = true;
+        let val: u8 = 0x2;
+        cpu.l = val.into();
+        let acc_val: u8 = 0x4;
         cpu.a = acc_val.into();
-        cpu.execute_opcode();
+        cpu.sbb_operation(0x9D);
 
-        assert_eq!(cpu.a, result);
+        assert_eq!(cpu.a, 0x1);
+        assert_eq!(cpu.flags.cy, false);
+        assert_eq!(cpu.flags.z, false);
+        assert_eq!(cpu.flags.p, false);
+        assert_eq!(cpu.flags.ac, true);
     }
 
     #[test]
-    fn test_opcode_b5_ora_l() {
+    fn test_ana_operation() {
         let mut cpu = Cpu::new();
-        let reg_val = get_random_number(0xFF) as u8;
-        let acc_val = get_random_number(0xFF) as u8;
-        let pc = get_random_number(0xFFFF);
-        let result = reg_val | acc_val;
-        cpu.pc = pc.into();
-        cpu.memory.ram[pc as usize] = 0xB5;
-        cpu.l = reg_val.into();
+        let reg_val: u8 = 0xF;
+        let acc_val: u8 = 0xFC;
         cpu.a = acc_val.into();
-        cpu.execute_opcode();
-
-        assert_eq!(cpu.a, result);
-    }
-
-    #[test]
-    fn test_opcode_b9_cmp_c_not_equal() {
-        let mut cpu = Cpu::new();
-        let reg_val = get_random_number(0xFF) as u8;
-        let acc_val = get_random_number(0xFF) as u8;
-        let pc = get_random_number(0xFFFF);
-        cpu.pc = pc.into();
-        cpu.memory.ram[pc as usize] = 0xB9;
         cpu.c = reg_val.into();
+        cpu.ana_operation(0xA1);
+
+        assert_eq!(cpu.a, 0xC);
+    }
+
+    #[test]
+    fn test_xra_operation() {
+        let mut cpu = Cpu::new();
+        let acc_val: u8 = 0xF;
         cpu.a = acc_val.into();
-        cpu.execute_opcode();
+        cpu.xra_operation(0xAF);
+
+        assert_eq!(cpu.a, 0x0);
+    }
+
+    #[test]
+    fn test_ora_operation() {
+        let mut cpu = Cpu::new();
+        let reg_val: u8 = 0x33;
+        let acc_val: u8 = 0x0F;
+        cpu.a = acc_val.into();
+        cpu.c = reg_val.into();
+        cpu.ora_operation(0xB1);
+
+        assert_eq!(cpu.a, 0x3F);
+    }
+
+    #[test]
+    fn test_cmp_operation() {
+        let mut cpu = Cpu::new();
+        let reg_val: u8 = 0x5;
+        let acc_val: u8 = 0xA;
+        cpu.a = acc_val.into();
+        cpu.e = reg_val.into();
+        cpu.cmp_operation(0xBB);
 
         assert_eq!(cpu.a, acc_val);
+        assert_eq!(cpu.e, reg_val);
+        assert_eq!(cpu.flags.cy, false);
         assert_eq!(cpu.flags.z, false);
     }
 
     #[test]
-    fn test_opcode_b9_cmp_c_equal() {
+    fn test_rlc() {
         let mut cpu = Cpu::new();
-        let reg_val = get_random_number(0xFF) as u8;
-        let pc = get_random_number(0xFFFF);
-        cpu.pc = pc.into();
-        cpu.memory.ram[pc as usize] = 0xB9;
-        cpu.c = reg_val.into();
-        cpu.a = reg_val.into();
-        cpu.execute_opcode();
+        let val: u8 = 0xF2;
+        cpu.a = val.into();
+        cpu.rlc();
 
-        assert_eq!(cpu.a, reg_val);
-        assert_eq!(cpu.flags.z, true);
+        assert_eq!(cpu.a, 0xE5);
+    }
+
+    #[test]
+    fn test_rrc() {
+        let mut cpu = Cpu::new();
+        let val: u8 = 0xF2;
+        cpu.a = val.into();
+        cpu.rrc();
+
+        assert_eq!(cpu.a, 0x79);
     }
 
     fn test_flag_values(cpu: &Cpu, p: bool, s: bool, z: bool, cy: bool, ac: bool) {
