@@ -1,3 +1,5 @@
+use super::Pointer;
+
 #[derive(Clone, Copy, Default, Debug)]
 // Tuple struct
 pub struct Register(u8);
@@ -17,6 +19,12 @@ impl From<u8> for Register {
 impl From<usize> for Register {
     fn from(t: usize) -> Self {
         Register(t as u8)
+    }
+}
+
+impl From<Pointer> for Register {
+    fn from(t: Pointer) -> Self {
+        Register(u8::from(t))
     }
 }
 

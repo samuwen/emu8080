@@ -50,31 +50,18 @@ impl Cpu {
             0x03 | 0x13 | 0x23 | 0x33 => self.inx_operation(op.code),
             0x04 | 0x0C | 0x14 | 0x1C | 0x24 | 0x2C | 0x34 | 0x3C => self.inr_operation(op.code),
             0x05 | 0x0D | 0x15 | 0x1D | 0x25 | 0x2D | 0x35 | 0x3D => self.dcr_operation(op.code),
-            // 0x06 => {
-            //     op.operation_name = String::from("MVI B");
-            // }
-            // // 0x07 => debug!("{:x} RLC", self.registers.pc),
+            0x06 | 0x0E | 0x16 | 0x1E | 0x26 | 0x2E | 0x36 | 0x3E => self.mvi_operation(op.code),
+            0x07 => self.rlc(op.code),
+            0x09 | 0x19 | 0x29 | 0x39 => self.dad_operation(op.code),
+            0x0F => self.rrc(op.code),
             // // 0x09 => debug!("{:x} DAD   B", self.registers.pc),
             // // 0x0A => debug!("{:x} LDAX  B", self.registers.pc),
             // // 0x0B => debug!("{:x} DCX   B", self.registers.pc),
-            // // 0x0E => {
-            // //     debug!("{:x} MVI   C, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
-            // // 0x0F => debug!("{:x} RRC", self.registers.pc),
             // // 0x12 => debug!("{:x} STAX  D", self.registers.pc),
-            // // 0x16 => {
-            // //     debug!("{:x} MVI   D, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
             // // 0x17 => debug!("{:x} RAL", self.registers.pc),
             // // 0x19 => debug!("{:x} DAD   D", self.registers.pc),
             // // 0x1A => debug!("{:x} LDAX  D", self.registers.pc),
             // // 0x1B => debug!("{:x} DCX   D", self.registers.pc),
-            // // 0x1E => {
-            // //     debug!("{:x} MVI   E, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
             // // 0x1F => debug!("{:x} RAR", self.registers.pc),
             // // 0x22 => {
             // //     debug!(
@@ -84,10 +71,6 @@ impl Cpu {
             // //         self.extra_byte(1)
             // //     );
             // //     self.registers.pc += 2
-            // // }
-            // // 0x26 => {
-            // //     debug!("{:x} MVI   H, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
             // // }
             // // 0x27 => debug!("{:x} DAA", self.registers.pc),
             // // 0x29 => debug!("{:x} DAD   H", self.registers.pc),
@@ -101,10 +84,6 @@ impl Cpu {
             // //     self.registers.pc += 2
             // // }
             // // 0x2B => debug!("{:x} DCX   H", self.registers.pc),
-            // // 0x2E => {
-            // //     debug!("{:x} MVI   L, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
             // // 0x2F => debug!("{:x} CMA", self.registers.pc),
             // // 0x32 => {
             // //     debug!(
@@ -114,10 +93,6 @@ impl Cpu {
             // //         self.extra_byte(1)
             // //     );
             // //     self.registers.pc += 2
-            // // }
-            // // 0x36 => {
-            // //     debug!("{:x} MVI   M, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
             // // }
             // // 0x37 => debug!("{:x} STC", self.registers.pc),
             // // 0x39 => debug!("{:x} DAD  SP", self.registers.pc),
@@ -131,10 +106,6 @@ impl Cpu {
             // //     self.registers.pc += 2
             // // }
             // // 0x3B => debug!("{:x} DCX  SP", self.registers.pc),
-            // // 0x3E => {
-            // //     debug!("{:x} MVI   A, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
             // // 0x3F => debug!("{:x} CMC", self.registers.pc),
             // // 0x40 => debug!("{:x} MOV  B,B", self.registers.pc),
             // // 0x41 => debug!("{:x} MOV  B,C", self.registers.pc),
@@ -493,7 +464,7 @@ impl Cpu {
             self.get_register(code),
             self.get_register_value(code) + carry_value,
             false,
-            &overflowing_add,
+            &overflowing_add_u8,
         );
     }
 
@@ -502,7 +473,7 @@ impl Cpu {
             self.get_register(code),
             self.get_register_value(code),
             false,
-            &overflowing_add,
+            &overflowing_add_u8,
         );
     }
 
@@ -512,7 +483,7 @@ impl Cpu {
             self.get_register(code),
             self.get_register_value(code) + carry_value,
             true,
-            &overflowing_sub,
+            &overflowing_sub_u8,
         );
     }
 
@@ -521,7 +492,7 @@ impl Cpu {
             self.get_register(code),
             self.get_register_value(code),
             false,
-            &overflowing_sub,
+            &overflowing_sub_u8,
         );
     }
 
@@ -583,8 +554,8 @@ impl Cpu {
 
     fn stax_operation(&mut self, code: u8) {
         let mem_ref = match code {
-            0x02 => self.get_memory_reference(self.b, self.c),
-            0x12 => self.get_memory_reference(self.d, self.e),
+            0x02 => self.get_reg_pair_value(self.b, self.c),
+            0x12 => self.get_reg_pair_value(self.d, self.e),
             _ => panic!("Bug exists in opcode routing operation."),
         };
         self.memory.ram[mem_ref as usize] = self.a.into();
@@ -593,22 +564,19 @@ impl Cpu {
     fn inx_operation(&mut self, code: u8) {
         match code {
             0x03 => {
-                let concat_val = self.get_memory_reference(self.b, self.c);
-                let result = concat_val.wrapping_add(1);
-                self.b = (result & 0xFF).into();
-                self.c = (result & 0x00FF).into();
+                let (x, y) = self.update_register_pair(self.b, self.c, 1, &wrapping_add);
+                self.b = x;
+                self.c = y;
             }
             0x13 => {
-                let concat_val = self.get_memory_reference(self.d, self.e);
-                let result = concat_val.wrapping_add(1);
-                self.d = (result & 0xFF).into();
-                self.e = (result & 0x00FF).into();
+                let (x, y) = self.update_register_pair(self.d, self.e, 1, &wrapping_add);
+                self.d = x;
+                self.e = y;
             }
             0x23 => {
-                let concat_val = self.get_memory_reference(self.h, self.l);
-                let result = concat_val.wrapping_add(1);
-                self.l = (result & 0xFF).into();
-                self.h = (result & 0x00FF).into();
+                let (x, y) = self.update_register_pair(self.h, self.l, 1, &wrapping_add);
+                self.h = x;
+                self.l = y;
             }
             0x33 => {
                 let val: u16 = self.sp.into();
@@ -621,43 +589,163 @@ impl Cpu {
 
     fn inr_operation(&mut self, code: u8) {
         match code {
-            0x04 => self.b = self.update_register_with_overflow(self.b, 1, true, &overflowing_add),
-            0x0C => self.c = self.update_register_with_overflow(self.c, 1, true, &overflowing_add),
-            0x14 => self.d = self.update_register_with_overflow(self.d, 1, true, &overflowing_add),
-            0x1C => self.e = self.update_register_with_overflow(self.e, 1, true, &overflowing_add),
-            0x24 => self.h = self.update_register_with_overflow(self.h, 1, true, &overflowing_add),
-            0x2C => self.l = self.update_register_with_overflow(self.l, 1, true, &overflowing_add),
+            0x04 => {
+                self.b = self.update_register_with_overflow(self.b, 1, true, &overflowing_add_u8)
+            }
+            0x0C => {
+                self.c = self.update_register_with_overflow(self.c, 1, true, &overflowing_add_u8)
+            }
+            0x14 => {
+                self.d = self.update_register_with_overflow(self.d, 1, true, &overflowing_add_u8)
+            }
+            0x1C => {
+                self.e = self.update_register_with_overflow(self.e, 1, true, &overflowing_add_u8)
+            }
+            0x24 => {
+                self.h = self.update_register_with_overflow(self.h, 1, true, &overflowing_add_u8)
+            }
+            0x2C => {
+                self.l = self.update_register_with_overflow(self.l, 1, true, &overflowing_add_u8)
+            }
             0x34 => {
-                let mem_ref = self.get_memory_reference(self.l, self.h);
+                let mem_ref = self.get_reg_pair_value(self.l, self.h);
                 let value = self.memory.ram[mem_ref as usize];
                 let (result, overflow) = value.overflowing_add(1);
                 self.set_flags(&result, value, overflow);
                 self.l = (result & 0xFF).into();
                 self.h = (result & 0x00FF).into();
             }
-            0x3C => self.a = self.update_register_with_overflow(self.a, 1, true, &overflowing_add),
+            0x3C => {
+                self.a = self.update_register_with_overflow(self.a, 1, true, &overflowing_add_u8)
+            }
             _ => panic!("Bug exists in opcode routing"),
         }
     }
 
     fn dcr_operation(&mut self, code: u8) {
         match code {
-            0x05 => self.b = self.update_register_with_overflow(self.b, 1, true, &overflowing_sub),
-            0x0D => self.c = self.update_register_with_overflow(self.c, 1, true, &overflowing_sub),
-            0x15 => self.d = self.update_register_with_overflow(self.d, 1, true, &overflowing_sub),
-            0x1D => self.e = self.update_register_with_overflow(self.e, 1, true, &overflowing_sub),
-            0x25 => self.h = self.update_register_with_overflow(self.h, 1, true, &overflowing_sub),
-            0x2D => self.l = self.update_register_with_overflow(self.l, 1, true, &overflowing_sub),
+            0x05 => {
+                self.b = self.update_register_with_overflow(self.b, 1, true, &overflowing_sub_u8)
+            }
+            0x0D => {
+                self.c = self.update_register_with_overflow(self.c, 1, true, &overflowing_sub_u8)
+            }
+            0x15 => {
+                self.d = self.update_register_with_overflow(self.d, 1, true, &overflowing_sub_u8)
+            }
+            0x1D => {
+                self.e = self.update_register_with_overflow(self.e, 1, true, &overflowing_sub_u8)
+            }
+            0x25 => {
+                self.h = self.update_register_with_overflow(self.h, 1, true, &overflowing_sub_u8)
+            }
+            0x2D => {
+                self.l = self.update_register_with_overflow(self.l, 1, true, &overflowing_sub_u8)
+            }
             0x35 => {
-                let mem_ref = self.get_memory_reference(self.l, self.h);
+                let mem_ref = self.get_reg_pair_value(self.l, self.h);
                 let value = self.memory.ram[mem_ref as usize];
                 let (result, overflow) = value.overflowing_sub(1);
                 self.set_flags(&result, value, !overflow);
                 self.l = (result & 0xFF).into();
                 self.h = (result & 0x00FF).into();
             }
-            0x3D => self.a = self.update_register_with_overflow(self.a, 1, true, &overflowing_sub),
+            0x3D => {
+                self.a = self.update_register_with_overflow(self.a, 1, true, &overflowing_sub_u8)
+            }
             _ => panic!("Bug exists in opcode routing"),
+        }
+    }
+
+    fn mvi_operation(&mut self, code: u8) {
+        match code {
+            0x05 => self.b = self.memory.ram[(usize::from(self.pc) + 1)].into(),
+            0x0E => self.c = self.memory.ram[(usize::from(self.pc) + 1)].into(),
+            0x15 => self.d = self.memory.ram[(usize::from(self.pc) + 1)].into(),
+            0x1E => self.e = self.memory.ram[(usize::from(self.pc) + 1)].into(),
+            0x25 => self.h = self.memory.ram[(usize::from(self.pc) + 1)].into(),
+            0x2E => self.l = self.memory.ram[(usize::from(self.pc) + 1)].into(),
+            0x35 => {
+                let mem_ref = self.get_reg_pair_value(self.h, self.l);
+                self.memory.ram[mem_ref as usize] = self.memory.ram[(usize::from(self.pc) + 1)];
+            }
+            0x3E => self.a = self.memory.ram[(usize::from(self.pc) + 1)].into(),
+            _ => panic!("Bug exists in opcode routing"),
+        }
+    }
+
+    fn rlc(&mut self) {
+        let reg_value: u8 = self.a.into();
+        let carry_flag = ((&reg_value & 0x80) >> 7) == 1;
+        let temp: u8 = &reg_value << 1;
+        if carry_flag {
+            self.flags.cy = true;
+            self.a = (temp | 0x1).into();
+        } else {
+            self.flags.cy = false;
+            self.a = (temp | 0).into();
+        }
+    }
+
+    fn rrc(&mut self) {
+        let reg_value: u8 = self.a.into();
+        let carry_flag = (&reg_value & 0x1) == 1;
+        let temp: u8 = &reg_value >> 1;
+        if carry_flag {
+            self.flags.cy = true;
+            self.a = (temp | 0x80).into();
+        } else {
+            self.flags.cy = false;
+            self.a = (temp | 0).into();
+        }
+    }
+
+    fn dad_operation(&mut self, code: u8) {
+        match code {
+            0x09 => {
+                let hl_reg = self.get_reg_pair_value(self.h, self.l);
+                let (x, y) = self.update_register_pair_overflow(
+                    self.b,
+                    self.c,
+                    hl_reg,
+                    &overflowing_add_u16,
+                );
+                self.h = x;
+                self.l = y;
+            }
+            0x19 => {
+                let hl_reg = self.get_reg_pair_value(self.h, self.l);
+                let (x, y) = self.update_register_pair_overflow(
+                    self.d,
+                    self.e,
+                    hl_reg,
+                    &overflowing_add_u16,
+                );
+                self.h = x;
+                self.l = y;
+            }
+            0x29 => {
+                // This is just doubled. :)
+                let hl_reg: u32 = self.get_reg_pair_value(self.h, self.l) as u32;
+                let result = hl_reg << 1;
+                let (x, y) = Cpu::return_split_registers((&result & 0xFFFF) as u16);
+                self.h = x;
+                self.l = y;
+                let overflow = (&result & 0xFF0000) >> 16;
+                self.flags.cy = if overflow == 0 { true } else { false };
+            }
+            0x39 => {
+                let hl_reg = self.get_reg_pair_value(self.h, self.l);
+                let (x, y) = self.update_register_pair_overflow(
+                    (self.sp & 0xFF).into(),
+                    (self.sp & 0x00FF).into(),
+                    hl_reg,
+                    &overflowing_add_u16,
+                );
+                self.h = x;
+                self.l = y;
+            }
+            _ => panic!("Bug in opcode router"),
         }
     }
 
@@ -687,6 +775,35 @@ impl Cpu {
         result.into()
     }
 
+    fn update_register_pair(
+        &mut self,
+        msb: Register,
+        lsb: Register,
+        op: u16,
+        f: &Fn(u16, u16) -> u16,
+    ) -> (Register, Register) {
+        let concat_val = self.get_reg_pair_value(msb, lsb);
+        let result = f(concat_val, op);
+        Cpu::return_split_registers(result)
+    }
+
+    fn update_register_pair_overflow(
+        &mut self,
+        msb: Register,
+        lsb: Register,
+        op: u16,
+        f: &Fn(u16, u16) -> (u16, bool),
+    ) -> (Register, Register) {
+        let reg_val = self.get_reg_pair_value(self.b, self.c);
+        let (result, overflow) = f(op, reg_val);
+        self.flags.cy = if overflow { true } else { false };
+        Cpu::return_split_registers(result)
+    }
+
+    fn return_split_registers(val: u16) -> (Register, Register) {
+        ((val & 0xFF).into(), (val & 0x00FF).into())
+    }
+
     fn get_register_value(self, code: u8) -> u8 {
         self.get_register(code).into()
     }
@@ -700,7 +817,7 @@ impl Cpu {
             4 => self.h,
             5 => self.l,
             6 => {
-                let mem_ref = self.get_memory_reference(self.h, self.l);
+                let mem_ref = self.get_reg_pair_value(self.h, self.l);
                 Register::from(self.memory.ram[mem_ref as usize])
             }
             7 => self.a,
@@ -708,16 +825,31 @@ impl Cpu {
         }
     }
 
-    fn get_memory_reference(self, msb: Register, lsb: Register) -> u16 {
+    fn get_reg_pair_value(self, msb: Register, lsb: Register) -> u16 {
         (u16::from(msb) << 8) | u16::from(lsb)
     }
 }
 
-fn overflowing_add(val: u8, operand: u8) -> (u8, bool) {
+fn overflowing_add_u8(val: u8, operand: u8) -> (u8, bool) {
     val.overflowing_add(operand)
 }
 
-fn overflowing_sub(val: u8, operand: u8) -> (u8, bool) {
+fn overflowing_add_u16(val: u16, operand: u16) -> (u16, bool) {
+    val.overflowing_add(operand)
+}
+
+fn wrapping_add(val: u16, operand: u16) -> u16 {
+    val.wrapping_add(operand)
+}
+
+// Carries are inverted in subtraction
+fn overflowing_sub_u8(val: u8, operand: u8) -> (u8, bool) {
+    let (result, overflow) = val.overflowing_sub(operand);
+    let overflow = if overflow { false } else { true };
+    (result, overflow)
+}
+
+fn overflowing_sub_u16(val: u16, operand: u16) -> (u16, bool) {
     val.overflowing_sub(operand)
 }
 

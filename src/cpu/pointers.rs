@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign};
+use std::ops::{Add, AddAssign, BitAnd};
 
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Pointer {
@@ -29,6 +29,12 @@ impl From<Pointer> for u16 {
     }
 }
 
+impl From<Pointer> for u8 {
+    fn from(t: Pointer) -> u8 {
+        t.x as u8
+    }
+}
+
 impl Add<u16> for Pointer {
     type Output = Pointer;
 
@@ -46,5 +52,13 @@ impl AddAssign<u16> for Pointer {
 impl PartialEq<u16> for Pointer {
     fn eq(&self, other: &u16) -> bool {
         &self.x == other
+    }
+}
+
+impl BitAnd<u16> for Pointer {
+    type Output = Pointer;
+
+    fn bitand(self, other: u16) -> Pointer {
+        Pointer { x: self.x & other }
     }
 }
