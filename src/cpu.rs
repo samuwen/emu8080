@@ -592,12 +592,11 @@ impl Cpu {
             0x25 => self.h = self.update_register_with_overflow(self.h, 1, &overflowing_sub_u8),
             0x2D => self.l = self.update_register_with_overflow(self.l, 1, &overflowing_sub_u8),
             0x35 => {
-                let mem_ref = self.get_reg_pair_value(self.l, self.h);
+                let mem_ref = self.get_reg_pair_value(self.h, self.l);
                 let value = self.memory.ram[mem_ref as usize];
                 let (result, overflow) = value.overflowing_sub(1);
                 self.set_flags(&result, value, 1, !overflow);
-                self.l = (result & 0xFF).into();
-                self.h = (result & 0x00FF).into();
+                self.memory.ram[mem_ref as usize] = result;
             }
             0x3D => self.a = self.update_register_with_overflow(self.a, 1, &overflowing_sub_u8),
             _ => panic!("Bug exists in opcode routing"),
@@ -606,13 +605,13 @@ impl Cpu {
 
     fn mvi_operation(&mut self, code: u8) {
         match code {
-            0x05 => self.b = self.memory.ram[(usize::from(self.pc) + 1)].into(),
+            0x06 => self.b = self.memory.ram[(usize::from(self.pc) + 1)].into(),
             0x0E => self.c = self.memory.ram[(usize::from(self.pc) + 1)].into(),
-            0x15 => self.d = self.memory.ram[(usize::from(self.pc) + 1)].into(),
+            0x16 => self.d = self.memory.ram[(usize::from(self.pc) + 1)].into(),
             0x1E => self.e = self.memory.ram[(usize::from(self.pc) + 1)].into(),
-            0x25 => self.h = self.memory.ram[(usize::from(self.pc) + 1)].into(),
+            0x26 => self.h = self.memory.ram[(usize::from(self.pc) + 1)].into(),
             0x2E => self.l = self.memory.ram[(usize::from(self.pc) + 1)].into(),
-            0x35 => {
+            0x36 => {
                 let mem_ref = self.get_reg_pair_value(self.h, self.l);
                 self.memory.ram[mem_ref as usize] = self.memory.ram[(usize::from(self.pc) + 1)];
             }
@@ -787,7 +786,7 @@ impl Cpu {
     }
 
     fn return_split_registers(val: u16) -> (Register, Register) {
-        ((val & 0xFF).into(), (val & 0x00FF).into())
+        (((val & 0xFF00) >> 8).into(), (val & 0xFF).into())
     }
 
     fn get_reg_value(self, code: u8) -> u8 {
@@ -1014,6 +1013,85 @@ mod tests {
     }
 
     #[test]
+    fn test_stax_operation() {
+        let mut cpu = Cpu::new();
+        let acc_val = get_random_number(0xFF);
+        cpu.a = acc_val.into();
+        cpu.b = (0x3F as u8).into();
+        cpu.c = (0x16 as u8).into();
+        cpu.stax_operation(0x02);
+
+        assert_eq!(cpu.memory.ram[0x3F16], acc_val as u8);
+    }
+
+    #[test]
+    fn test_inx_operation() {
+        let mut cpu = Cpu::new();
+        cpu.d = (0x38 as u8).into();
+        cpu.e = (0xFF as u8).into();
+        cpu.inx_operation(0x13);
+
+        assert_eq!(cpu.d, 0x39);
+        assert_eq!(cpu.e, 0x0);
+    }
+
+    #[test]
+    fn test_inr_operation() {
+        let mut cpu = Cpu::new();
+        cpu.c = (0x99 as u8).into();
+        cpu.inr_operation(0x0C);
+
+        assert_eq!(cpu.c, 0x9A);
+    }
+
+    #[test]
+    fn test_dcr_operation() {
+        let mut cpu = Cpu::new();
+        cpu.h = (0x3A as u8).into();
+        cpu.l = (0x7C as u8).into();
+        cpu.memory.ram[0x3A7C] = 0x40;
+        cpu.dcr_operation(0x35);
+
+        assert_eq!(cpu.memory.ram[0x3A7C], 0x3F);
+    }
+
+    #[test]
+    fn test_mvi_operation() {
+        let mut cpu = Cpu::new();
+        cpu.d = (0xF4 as u8).into();
+        cpu.memory.ram[0x1] = 0x36;
+        cpu.mvi_operation(0x16);
+
+        assert_eq!(cpu.d, 0x36);
+    }
+
+    #[test]
+    fn test_dad_operation() {
+        let mut cpu = Cpu::new();
+        cpu.b = (0x33 as u8).into();
+        cpu.c = (0x9F as u8).into();
+        cpu.h = (0xA1 as u8).into();
+        cpu.l = (0x7B as u8).into();
+        cpu.dad_operation(0x09);
+
+        assert_eq!(cpu.h, 0xD5);
+        assert_eq!(cpu.l, 0x1A);
+    }
+
+    #[test]
+    fn test_ldax_operation() {
+        let mut cpu = Cpu::new();
+        cpu.d = (0x93 as u8).into();
+        cpu.e = (0x8B as u8).into();
+        cpu.a = (0xFF as u8).into();
+        let val: u8 = 0x34;
+        cpu.memory.ram[0x938B as usize] = val;
+        cpu.ldax_operation(0x1A);
+
+        assert_eq!(cpu.a, val);
+    }
+
+    #[test]
     fn test_add_operation() {
         let mut cpu = Cpu::new();
         let val: u8 = 0x2E;
@@ -1163,6 +1241,15 @@ mod tests {
         cpu.rrc();
 
         assert_eq!(cpu.a, 0x79);
+    }
+
+    #[test]
+    fn test_ral() {
+        let mut cpu = Cpu::new();
+        cpu.a = (0xB5 as u8).into();
+        cpu.ral();
+
+        assert_eq!(cpu.a, 0x6A);
     }
 
     fn test_flag_values(cpu: &Cpu, p: bool, s: bool, z: bool, cy: bool, ac: bool) {
