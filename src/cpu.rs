@@ -57,27 +57,10 @@ impl Cpu {
             0x0A | 0x1A => self.ldax_operation(op.code),
             0x0B | 0x1B | 0x2B | 0x3B => self.dcx_operation(op.code),
             0x17 => self.ral(),
-            // // 0x17 => debug!("{:x} RAL", self.registers.pc),
-            // // 0x1F => debug!("{:x} RAR", self.registers.pc),
-            // // 0x22 => {
-            // //     debug!(
-            // //         "{:x} SHLD     {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
-            // // 0x27 => debug!("{:x} DAA", self.registers.pc),
-            // // 0x2A => {
-            // //     debug!(
-            // //         "{:x} LHLD     {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
+            0x1F => self.rar(),
+            0x22 => self.shld(),
+            0x27 => self.daa(),
+            0x2A => self.lhld(),
             // // 0x2F => debug!("{:x} CMA", self.registers.pc),
             // // 0x32 => {
             // //     debug!(
@@ -634,7 +617,15 @@ impl Cpu {
     }
 
     fn ral(&mut self) {
-        // ral
+        let reg_value: u8 = self.a.into();
+        let carry_flag = ((&reg_value & 0x80) >> 7) == 1;
+        let temp: u8 = &reg_value << 1;
+        self.a = if self.flags.cy {
+            (temp | 0x1).into()
+        } else {
+            (temp | 0x0).into()
+        };
+        self.flags.cy = carry_flag;
     }
 
     fn rrc(&mut self) {
@@ -648,6 +639,50 @@ impl Cpu {
             self.flags.cy = false;
             self.a = (temp | 0).into();
         }
+    }
+
+    fn rar(&mut self) {
+        let reg_value: u8 = self.a.into();
+        let carry_flag = (&reg_value & 0x1) == 1;
+        let temp: u8 = &reg_value >> 1;
+        self.a = if self.flags.cy {
+            (temp | 0x80).into()
+        } else {
+            (temp | 0x0).into()
+        };
+        self.flags.cy = carry_flag;
+    }
+
+    fn shld(&mut self) {
+        let low_adr: u16 = self.memory.ram[usize::from(self.pc + 1)].into();
+        let high_adr: u16 = self.memory.ram[usize::from(self.pc + 2)].into();
+        let mem_add = (high_adr << 8) | low_adr;
+        self.memory.ram[mem_add as usize] = self.l.into();
+        self.memory.ram[(mem_add + 1) as usize] = self.h.into();
+    }
+
+    fn daa(&mut self) {
+        let inc_6 = |val, flag| val + if val > 9 || flag { 6 } else { 0 };
+        let chk_over = |val| ((val & 0xF0) >> 4) == 1u8;
+        let split_bytes = |val: u8| ((val & 0xF), ((val & 0xF0) >> 4));
+        let (lsbits, mut msbits) = split_bytes(self.a.into());
+        let lsmod = inc_6(lsbits, self.flags.ac);
+        if chk_over(lsmod) {
+            msbits = msbits.wrapping_add(1);
+        }
+        let msmod = inc_6(msbits, self.flags.cy);
+        self.flags.ac = chk_over(lsmod);
+        self.flags.cy = chk_over(msmod);
+
+        self.a = (((msmod & 0xF) << 4) | lsmod & 0xF).into();
+    }
+
+    fn lhld(&mut self) {
+        let low_adr: u16 = self.memory.ram[usize::from(self.pc + 1)].into();
+        let high_adr: u16 = self.memory.ram[usize::from(self.pc + 2)].into();
+        let mem_add = (high_adr << 8) | low_adr;
+        self.h = self.memory.ram[mem_add as usize].into();
+        self.l = self.memory.ram[(mem_add + 1) as usize].into();
     }
 
     fn dad_operation(&mut self, code: u8) {
@@ -1250,6 +1285,55 @@ mod tests {
         cpu.ral();
 
         assert_eq!(cpu.a, 0x6A);
+    }
+
+    #[test]
+    fn test_rar() {
+        let mut cpu = Cpu::new();
+        cpu.a = (0x6A as u8).into();
+        cpu.flags.cy = true;
+        cpu.rar();
+
+        assert_eq!(cpu.a, 0xB5);
+    }
+
+    #[test]
+    fn test_shld() {
+        let mut cpu = Cpu::new();
+        cpu.h = (0xAE as u8).into();
+        cpu.l = (0x29 as u8).into();
+        let rand: u16 = get_random_number(0xFFFC);
+        cpu.pc = rand.into();
+        cpu.memory.ram[(rand + 1) as usize] = 0x0A;
+        cpu.memory.ram[(rand + 2) as usize] = 0x01;
+        cpu.shld();
+
+        assert_eq!(cpu.memory.ram[0x10A], 0x29);
+        assert_eq!(cpu.memory.ram[0x10B], 0xAE);
+    }
+
+    #[test]
+    fn test_daa() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x9Bu8.into();
+        cpu.daa();
+
+        assert_eq!(cpu.a, 1);
+    }
+
+    #[test]
+    fn test_lhld() {
+        let mut cpu = Cpu::new();
+        let rand: u16 = 0x10;
+        cpu.pc = rand.into();
+        cpu.memory.ram[(rand + 1) as usize] = 0xCB;
+        cpu.memory.ram[(rand + 2) as usize] = 0x50;
+        cpu.memory.ram[0x50CB] = 0xFF;
+        cpu.memory.ram[0x50CC] = 0x03;
+        cpu.lhld();
+
+        assert_eq!(cpu.h, 0xFF);
+        assert_eq!(cpu.l, 0x03);
     }
 
     fn test_flag_values(cpu: &Cpu, p: bool, s: bool, z: bool, cy: bool, ac: bool) {
