@@ -39,6 +39,8 @@ fn opcode_name(val: u8) -> String {
         0x22 => String::from("SHLD"),
         0x27 => String::from("DAA"),
         0x2A => String::from("LHLD"),
+        0x2F => String::from("CMA"),
+        0x32 => String::from("STA"),
         0x80...0x87 => String::from("ADD"),
         0x88...0x8F => String::from("ADC"),
         0x90...0x97 => String::from("SUB"),

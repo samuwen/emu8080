@@ -61,16 +61,8 @@ impl Cpu {
             0x22 => self.shld(),
             0x27 => self.daa(),
             0x2A => self.lhld(),
-            // // 0x2F => debug!("{:x} CMA", self.registers.pc),
-            // // 0x32 => {
-            // //     debug!(
-            // //         "{:x} STA   {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
+            0x2F => self.cma(),
+            0x32 => self.sta(),
             // // 0x37 => debug!("{:x} STC", self.registers.pc),
             // // 0x3A => {
             // //     debug!(
@@ -654,9 +646,7 @@ impl Cpu {
     }
 
     fn shld(&mut self) {
-        let low_adr: u16 = self.memory.ram[usize::from(self.pc + 1)].into();
-        let high_adr: u16 = self.memory.ram[usize::from(self.pc + 2)].into();
-        let mem_add = (high_adr << 8) | low_adr;
+        let mem_add = self.get_memory_reference();
         self.memory.ram[mem_add as usize] = self.l.into();
         self.memory.ram[(mem_add + 1) as usize] = self.h.into();
     }
@@ -678,11 +668,20 @@ impl Cpu {
     }
 
     fn lhld(&mut self) {
-        let low_adr: u16 = self.memory.ram[usize::from(self.pc + 1)].into();
-        let high_adr: u16 = self.memory.ram[usize::from(self.pc + 2)].into();
-        let mem_add = (high_adr << 8) | low_adr;
+        let mem_add = self.get_memory_reference();
         self.h = self.memory.ram[mem_add as usize].into();
         self.l = self.memory.ram[(mem_add + 1) as usize].into();
+    }
+
+    fn cma(&mut self) {
+        let val: u8 = self.a.into();
+        let inverted: u8 = !val;
+        self.a = inverted.into();
+    }
+
+    fn sta(&mut self) {
+        let mem_add = self.get_memory_reference();
+        self.memory.ram[mem_add as usize] = self.a.into();
     }
 
     fn dad_operation(&mut self, code: u8) {
@@ -847,6 +846,12 @@ impl Cpu {
 
     fn get_reg_pair_value(self, msb: Register, lsb: Register) -> u16 {
         (u16::from(msb) << 8) | u16::from(lsb)
+    }
+
+    fn get_memory_reference(self) -> u16 {
+        let low_adr: u16 = self.memory.ram[usize::from(self.pc + 1)].into();
+        let high_adr: u16 = self.memory.ram[usize::from(self.pc + 2)].into();
+        (high_adr << 8) | low_adr
     }
 }
 
@@ -1334,6 +1339,29 @@ mod tests {
 
         assert_eq!(cpu.h, 0xFF);
         assert_eq!(cpu.l, 0x03);
+    }
+
+    #[test]
+    fn test_cma() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x51u8.into();
+        cpu.cma();
+
+        assert_eq!(cpu.a, 0xAE);
+    }
+
+    #[test]
+    fn test_sta() {
+        let mut cpu = Cpu::new();
+        let rand: u8 = get_random_number(0xFF) as u8;
+        cpu.a = rand.into();
+        let pc = get_random_number(0xFFFC);
+        cpu.pc = pc.into();
+        cpu.memory.ram[(pc + 1) as usize] = 0x23;
+        cpu.memory.ram[(pc + 2) as usize] = 0xC8;
+        cpu.sta();
+
+        assert_eq!(cpu.memory.ram[0xC823], rand);
     }
 
     fn test_flag_values(cpu: &Cpu, p: bool, s: bool, z: bool, cy: bool, ac: bool) {
