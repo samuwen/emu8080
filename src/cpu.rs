@@ -88,8 +88,7 @@ impl Cpu {
             0xC5 | 0xD5 | 0xE5 | 0xF5 => self.push_operation(op.code),
             0xC6 => self.adi(),
             0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => self.rst_operation(op.code),
-            // // 0xC7 => debug!("{:x} RST", self.registers.pc),
-            // // 0xC8 => debug!("{:x} RZ", self.registers.pc),
+            0xC8 => self.rz(),
             // // 0xC9 => debug!("{:x} RET", self.registers.pc),
             // // 0xCA => debug!("{:x} JZ", self.registers.pc),
             // // 0xCC => {
@@ -114,7 +113,6 @@ impl Cpu {
             // //     debug!("{:x} ACI  D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
             // // }
-            // // 0xCF => debug!("{:x} RST   1", self.registers.pc),
             // // 0xD0 => debug!("{:x} RNC", self.registers.pc),
             // // 0xD2 => {
             // //     debug!(
@@ -142,7 +140,6 @@ impl Cpu {
             // //     debug!("{:x} SUI  D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
             // // }
-            // // 0xD7 => debug!("{:x} RST   2", self.registers.pc),
             // // 0xD8 => debug!("{:x} RC", self.registers.pc),
             // // 0xDA => {
             // //     debug!(
@@ -170,7 +167,6 @@ impl Cpu {
             // //     debug!("{:x} SBI  D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
             // // }
-            // // 0xDF => debug!("{:x} RST   3", self.registers.pc),
             // // 0xE0 => debug!("{:x} RPO", self.registers.pc),
             // // 0xE2 => {
             // //     debug!(
@@ -195,7 +191,6 @@ impl Cpu {
             // //     debug!("{:x} ANI  D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
             // // }
-            // // 0xE7 => debug!("{:x} RST   4", self.registers.pc),
             // // 0xE8 => debug!("{:x} RPE", self.registers.pc),
             // // 0xE9 => debug!("{:x} PCHL", self.registers.pc),
             // // 0xEA => {
@@ -221,7 +216,6 @@ impl Cpu {
             // //     debug!("{:x} XRE   D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
             // // }
-            // // 0xEF => debug!("{:x} RST   5", self.registers.pc),
             // // 0xF0 => debug!("{:x} RP", self.registers.pc),
             // // 0xF2 => {
             // //     debug!(
@@ -246,7 +240,6 @@ impl Cpu {
             // //     debug!("{:x} ORI  D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
             // // }
-            // // 0xF7 => debug!("{:x} RST   6", self.registers.pc),
             // // 0xF8 => debug!("{:x} RM", self.registers.pc),
             // // 0xF9 => debug!("{:x} SPHL", self.registers.pc),
             // // 0xFA => {
@@ -272,7 +265,6 @@ impl Cpu {
             // //     debug!("{:x} CPI  D8,  {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
             // // }
-            // // 0xFF => debug!("{:x} RST   7", self.registers.pc),
             _ => panic!("Invalid opcode"),
         }
         self.pc += 1;
@@ -704,10 +696,20 @@ impl Cpu {
 
     // Return operations
 
+    fn return_from_subroutine(&mut self) {
+        let (msb, lsb) = self.pop_off_stack();
+        self.pc = self.get_pair_value(msb, lsb).into();
+    }
+
     fn rnz(&mut self) {
         if self.flags.z {
-            let (msb, lsb) = self.pop_off_stack();
-            self.pc = self.get_pair_value(msb, lsb).into()
+            self.return_from_subroutine();
+        }
+    }
+
+    fn rz(&mut self) {
+        if !self.flags.z {
+            self.return_from_subroutine();
         }
     }
 
@@ -1558,6 +1560,35 @@ mod tests {
         cpu.pc = pc.into();
         cpu.sp = new_pc.into();
         cpu.rnz();
+
+        assert_eq!(cpu.pc, pc);
+    }
+
+    #[test]
+    fn test_rz_z_unset() {
+        let mut cpu = Cpu::new();
+        let pc = get_random_number(0xFFFF);
+        let sp = get_random_number(0xFFFF);
+        cpu.pc = pc.into();
+        cpu.flags.z = false;
+        cpu.sp = sp.into();
+        let msb: u16 = cpu.memory.ram[(sp - 1) as usize].into();
+        let lsb: u16 = cpu.memory.ram[(sp - 2) as usize].into();
+        let result = (msb << 8) | lsb;
+        cpu.rz();
+
+        assert_eq!(cpu.pc, result);
+    }
+
+    #[test]
+    fn test_rz_z_set() {
+        let mut cpu = Cpu::new();
+        let pc = get_random_number(0xFFFF);
+        let new_pc = get_random_number(0xFFFF);
+        cpu.flags.z = true;
+        cpu.pc = pc.into();
+        cpu.sp = new_pc.into();
+        cpu.rz();
 
         assert_eq!(cpu.pc, pc);
     }
