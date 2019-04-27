@@ -63,81 +63,18 @@ impl Cpu {
             0x2A => self.lhld(),
             0x2F => self.cma(),
             0x32 => self.sta(),
-            // // 0x37 => debug!("{:x} STC", self.registers.pc),
-            // // 0x3A => {
-            // //     debug!(
-            // //         "{:x} LDA      {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
-            // // 0x3F => debug!("{:x} CMC", self.registers.pc),
-            // // 0x40 => debug!("{:x} MOV  B,B", self.registers.pc),
-            // // 0x41 => debug!("{:x} MOV  B,C", self.registers.pc),
-            // // 0x42 => debug!("{:x} MOV  B,D", self.registers.pc),
-            // // 0x43 => debug!("{:x} MOV  B,E", self.registers.pc),
-            // // 0x44 => debug!("{:x} MOV  B,H", self.registers.pc),
-            // // 0x45 => debug!("{:x} MOV  B,L", self.registers.pc),
-            // // 0x46 => debug!("{:x} MOV  B,M", self.registers.pc),
-            // // 0x47 => debug!("{:x} MOV  B,A", self.registers.pc),
-            // // 0x48 => debug!("{:x} MOV  C,B", self.registers.pc),
-            // // 0x49 => debug!("{:x} MOV  C,C", self.registers.pc),
-            // // 0x4A => debug!("{:x} MOV  C,D", self.registers.pc),
-            // // 0x4B => debug!("{:x} MOV  C,E", self.registers.pc),
-            // // 0x4C => debug!("{:x} MOV  C,H", self.registers.pc),
-            // // 0x4D => debug!("{:x} MOV  C,L", self.registers.pc),
-            // // 0x4E => debug!("{:x} MOV  C,M", self.registers.pc),
-            // // 0x4F => debug!("{:x} MOV  C,A", self.registers.pc),
-            // // 0x50 => debug!("{:x} MOV  D,B", self.registers.pc),
-            // // 0x51 => debug!("{:x} MOV  D,C", self.registers.pc),
-            // // 0x52 => debug!("{:x} MOV  D,D", self.registers.pc),
-            // // 0x53 => debug!("{:x} MOV  D,E", self.registers.pc),
-            // // 0x54 => debug!("{:x} MOV  D,H", self.registers.pc),
-            // // 0x55 => debug!("{:x} MOV  D,L", self.registers.pc),
-            // // 0x56 => debug!("{:x} MOV  D,M", self.registers.pc),
-            // // 0x57 => debug!("{:x} MOV  D,A", self.registers.pc),
-            // // 0x58 => debug!("{:x} MOV  E,B", self.registers.pc),
-            // // 0x59 => debug!("{:x} MOV  E,C", self.registers.pc),
-            // // 0x5A => debug!("{:x} MOV  E,D", self.registers.pc),
-            // // 0x5B => debug!("{:x} MOV  E,E", self.registers.pc),
-            // // 0x5C => debug!("{:x} MOV  E,H", self.registers.pc),
-            // // 0x5D => debug!("{:x} MOV  E,L", self.registers.pc),
-            // // 0x5E => debug!("{:x} MOV  E,M", self.registers.pc),
-            // // 0x5F => debug!("{:x} MOV  E,A", self.registers.pc),
-            // // 0x60 => debug!("{:x} MOV  H,B", self.registers.pc),
-            // // 0x61 => debug!("{:x} MOV  H,C", self.registers.pc),
-            // // 0x62 => debug!("{:x} MOV  H,D", self.registers.pc),
-            // // 0x63 => debug!("{:x} MOV  H,E", self.registers.pc),
-            // // 0x64 => debug!("{:x} MOV  H,H", self.registers.pc),
-            // // 0x65 => debug!("{:x} MOV  H,L", self.registers.pc),
-            // // 0x66 => debug!("{:x} MOV  H,M", self.registers.pc),
-            // // 0x67 => debug!("{:x} MOV  H,A", self.registers.pc),
-            // // 0x68 => debug!("{:x} MOV  L,B", self.registers.pc),
-            // // 0x69 => debug!("{:x} MOV  L,C", self.registers.pc),
-            // // 0x6A => debug!("{:x} MOV  L,D", self.registers.pc),
-            // // 0x6B => debug!("{:x} MOV  L,E", self.registers.pc),
-            // // 0x6C => debug!("{:x} MOV  L,H", self.registers.pc),
-            // // 0x6D => debug!("{:x} MOV  L,L", self.registers.pc),
-            // // 0x6E => debug!("{:x} MOV  L,M", self.registers.pc),
-            // // 0x6F => debug!("{:x} MOV  L,A", self.registers.pc),
-            // // 0x70 => debug!("{:x} MOV  M,B", self.registers.pc),
-            // // 0x71 => debug!("{:x} MOV  M,C", self.registers.pc),
-            // // 0x72 => debug!("{:x} MOV  M,D", self.registers.pc),
-            // // 0x73 => debug!("{:x} MOV  M,E", self.registers.pc),
-            // // 0x74 => debug!("{:x} MOV  M,H", self.registers.pc),
-            // // 0x75 => debug!("{:x} MOV  M,L", self.registers.pc),
-            // // 0x76 => debug!("{:x} HLT", self.registers.pc),
-            // // 0x77 => debug!("{:x} MOV M,A", self.registers.pc),
-            // // 0x78 => debug!("{:x} MOV A,B", self.registers.pc),
-            // // 0x79 => debug!("{:x} MOV A,C", self.registers.pc),
-            // // 0x7A => debug!("{:x} MOV A,D", self.registers.pc),
-            // // 0x7B => debug!("{:x} MOV A,E", self.registers.pc),
-            // // 0x7C => debug!("{:x} MOV A,H", self.registers.pc),
-            // // 0x7D => debug!("{:x} MOV A,L", self.registers.pc),
-            // // 0x7E => debug!("{:x} MOV A,M", self.registers.pc),
-            // // 0x7F => debug!("{:x} MOV A,A", self.registers.pc),
+            0x37 => self.stc(),
+            0x3A => self.lda(),
+            0x3F => self.cmc(),
+            0x40...0x47 => self.mov_b_operation(op.code),
+            0x48...0x4F => self.mov_c_operation(op.code),
+            0x50...0x57 => self.mov_d_operation(op.code),
+            0x58...0x5F => self.mov_e_operation(op.code),
+            0x60...0x67 => self.mov_h_operation(op.code),
+            0x68...0x6F => self.mov_l_operation(op.code),
+            0x70...0x75 | 0x77 => self.mov_m_operation(op.code),
+            0x76 => self.hlt(),
+            0x78...0x7F => self.mov_a_operation(op.code),
             0x80...0x87 => self.add_operation(op.code),
             0x88...0x8F => self.adc_operation(op.code),
             0x90...0x97 => self.sub_operation(op.code),
@@ -682,6 +619,56 @@ impl Cpu {
     fn sta(&mut self) {
         let mem_add = self.get_memory_reference();
         self.memory.ram[mem_add as usize] = self.a.into();
+    }
+
+    fn stc(&mut self) {
+        self.flags.cy = true;
+    }
+
+    fn lda(&mut self) {
+        let mem_add = self.get_memory_reference();
+        self.a = self.memory.ram[mem_add as usize].into();
+    }
+
+    fn cmc(&mut self) {
+        self.flags.cy = !self.flags.cy;
+    }
+
+    fn hlt(&mut self) {
+        // not sure how to implement yet
+    }
+
+    fn mov_b_operation(&mut self, code: u8) {
+        self.b = self.get_reg_value(code).into();
+    }
+
+    fn mov_c_operation(&mut self, code: u8) {
+        self.c = self.get_reg_value(code).into();
+    }
+
+    fn mov_d_operation(&mut self, code: u8) {
+        self.d = self.get_reg_value(code).into();
+    }
+
+    fn mov_e_operation(&mut self, code: u8) {
+        self.e = self.get_reg_value(code).into();
+    }
+
+    fn mov_h_operation(&mut self, code: u8) {
+        self.h = self.get_reg_value(code).into();
+    }
+
+    fn mov_l_operation(&mut self, code: u8) {
+        self.l = self.get_reg_value(code).into();
+    }
+
+    fn mov_a_operation(&mut self, code: u8) {
+        self.a = self.get_reg_value(code).into();
+    }
+
+    fn mov_m_operation(&mut self, code: u8) {
+        let mem_ref = self.get_reg_pair_value(self.h, self.l);
+        self.memory.ram[mem_ref as usize] = self.get_reg_value(code).into();
     }
 
     fn dad_operation(&mut self, code: u8) {
@@ -1362,6 +1349,76 @@ mod tests {
         cpu.sta();
 
         assert_eq!(cpu.memory.ram[0xC823], rand);
+    }
+
+    #[test]
+    fn test_stc() {
+        let mut cpu = Cpu::new();
+        cpu.stc();
+
+        assert_eq!(cpu.flags.cy, true);
+    }
+
+    #[test]
+    fn test_lda() {
+        let mut cpu = Cpu::new();
+        let pc: u8 = get_random_number(0xFFFC) as u8;
+        cpu.pc = pc.into();
+        cpu.memory.ram[(pc + 1) as usize] = 0x39;
+        cpu.memory.ram[(pc + 2) as usize] = 0xB2;
+        cpu.memory.ram[0xB239] = 0xEE;
+        cpu.lda();
+
+        assert_eq!(cpu.a, 0xEE);
+    }
+
+    #[test]
+    fn test_cmc() {
+        let mut cpu = Cpu::new();
+        cpu.flags.cy = true;
+        cpu.cmc();
+
+        assert_eq!(cpu.flags.cy, false);
+        cpu.cmc();
+
+        assert_eq!(cpu.flags.cy, true);
+    }
+
+    #[test]
+    fn test_hlt() {
+        unimplemented!()
+    }
+
+    #[test]
+    fn test_mov_b() {
+        let mut cpu = Cpu::new();
+        cpu.c = 0x23u8.into();
+        cpu.b = 0xAAu8.into();
+        cpu.mov_b_operation(0x41);
+
+        assert_eq!(cpu.b, 0x23);
+    }
+
+    #[test]
+    fn test_mov_c() {
+        let mut cpu = Cpu::new();
+        cpu.d = 0x66u8.into();
+        cpu.c = 0xE3u8.into();
+        cpu.mov_c_operation(0x4A);
+
+        assert_eq!(cpu.c, 0x66);
+    }
+
+    #[test]
+    fn test_mov_d() {
+        let mut cpu = Cpu::new();
+        cpu.l = 0x01u8.into();
+        cpu.h = 0xA9u8.into();
+        cpu.memory.ram[0xA901] = 0x4C;
+        cpu.d = 0x77u8.into();
+        cpu.mov_d_operation(0x56);
+
+        assert_eq!(cpu.d, 0x4C);
     }
 
     fn test_flag_values(cpu: &Cpu, p: bool, s: bool, z: bool, cy: bool, ac: bool) {
