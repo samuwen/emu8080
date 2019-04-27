@@ -91,57 +91,25 @@ impl Cpu {
             0xC8 => self.rz(),
             0xC9 => self.return_from_subroutine(),
             0xCA => self.jz(),
-            // // 0xCA => debug!("{:x} JZ", self.registers.pc),
-            // // 0xCC => {
-            // //     debug!(
-            // //         "{:x} CZ    {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
-            // // 0xCD => {
-            // //     debug!(
-            // //         "{:x} CALL  {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
-            // // 0xCE => {
-            // //     debug!("{:x} ACI  D8, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
-            // // 0xD0 => debug!("{:x} RNC", self.registers.pc),
-            // // 0xD2 => {
-            // //     debug!(
-            // //         "{:x} JNC   {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
+            0xCC => self.cz(),
+            0xCD => self.call_subroutine(),
+            0xCE => self.aci(),
+            0xD0 => self.rnc(),
+            0xD2 => self.jnc(),
+            0xD4 => self.cnc(),
+            0xD8 => self.rc(),
+            0xDC => self.cc(),
+            0xF0 => self.rp(),
+            0xF2 => self.jp(),
+            0xF4 => self.cp(),
             // // 0xD3 => {
             // //     debug!("{:x} OUT  D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
-            // // }
-            // // 0xD4 => {
-            // //     debug!(
-            // //         "{:x} CNC   {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
             // // }
             // // 0xD6 => {
             // //     debug!("{:x} SUI  D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
             // // }
-            // // 0xD8 => debug!("{:x} RC", self.registers.pc),
             // // 0xDA => {
             // //     debug!(
             // //         "{:x} JC    {:x}  {:x}",
@@ -154,15 +122,6 @@ impl Cpu {
             // // 0xDB => {
             // //     debug!("{:x} IN    D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
-            // // }
-            // // 0xDC => {
-            // //     debug!(
-            // //         "{:x} CC    {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
             // // }
             // // 0xDE => {
             // //     debug!("{:x} SBI  D8, {:x}", self.registers.pc, self.extra_byte(1));
@@ -217,26 +176,7 @@ impl Cpu {
             // //     debug!("{:x} XRE   D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
             // // }
-            // // 0xF0 => debug!("{:x} RP", self.registers.pc),
-            // // 0xF2 => {
-            // //     debug!(
-            // //         "{:x} JP    {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
             // // 0xF3 => debug!("{:x} DI", self.registers.pc),
-            // // 0xF4 => {
-            // //     debug!(
-            // //         "{:x} CP    {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
             // // 0xF6 => {
             // //     debug!("{:x} ORI  D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
@@ -339,7 +279,16 @@ impl Cpu {
         let (result, overflow) = a.overflowing_add(next_byte);
         self.set_flags(&result, a, next_byte, overflow);
         self.a = result.into();
-        self.pc += 2;
+        self.pc += 1;
+    }
+
+    fn aci(&mut self) {
+        let a: u8 = self.a.into();
+        let next_byte = self.get_next_byte() + self.flags.cy as u8;
+        let (result, overflow) = a.overflowing_add(next_byte);
+        self.set_flags(&result, a, next_byte, overflow);
+        self.a = result.into();
+        self.pc += 1;
     }
 
     fn sbb_operation(&mut self, code: u8) {
@@ -672,18 +621,50 @@ impl Cpu {
     }
 
     fn jnz(&mut self) {
-        if self.flags.z {
-            self.jmp();
+        if !self.flags.z {
+            self.jmp()
         } else {
-            self.pc += 2;
+            self.pc += 2
+        }
+    }
+
+    fn jnc(&mut self) {
+        if !self.flags.cy {
+            self.jmp()
+        } else {
+            self.pc += 2
+        }
+    }
+
+    fn jnp(&mut self) {
+        if !self.flags.p {
+            self.jmp()
+        } else {
+            self.pc += 2
         }
     }
 
     fn jz(&mut self) {
-        if !self.flags.z {
-            self.jmp();
+        if self.flags.z {
+            self.jmp()
         } else {
-            self.pc += 2;
+            self.pc += 2
+        }
+    }
+
+    fn jc(&mut self) {
+        if self.flags.cy {
+            self.jmp()
+        } else {
+            self.pc += 2
+        }
+    }
+
+    fn jp(&mut self) {
+        if self.flags.p {
+            self.jmp()
+        } else {
+            self.pc += 2
         }
     }
 
@@ -696,7 +677,47 @@ impl Cpu {
     }
 
     fn cnz(&mut self) {
+        if !self.flags.z {
+            self.call_subroutine()
+        } else {
+            self.pc += 2
+        }
+    }
+
+    fn cnc(&mut self) {
+        if !self.flags.z {
+            self.call_subroutine()
+        } else {
+            self.pc += 2
+        }
+    }
+
+    fn cnp(&mut self) {
+        if !self.flags.p {
+            self.call_subroutine()
+        } else {
+            self.pc += 2
+        }
+    }
+
+    fn cz(&mut self) {
         if self.flags.z {
+            self.call_subroutine()
+        } else {
+            self.pc += 2
+        }
+    }
+
+    fn cc(&mut self) {
+        if self.flags.cy {
+            self.call_subroutine()
+        } else {
+            self.pc += 2
+        }
+    }
+
+    fn cp(&mut self) {
+        if self.flags.p {
             self.call_subroutine()
         } else {
             self.pc += 2
@@ -711,13 +732,37 @@ impl Cpu {
     }
 
     fn rnz(&mut self) {
-        if self.flags.z {
+        if !self.flags.z {
+            self.return_from_subroutine();
+        }
+    }
+
+    fn rnc(&mut self) {
+        if !self.flags.cy {
+            self.return_from_subroutine();
+        }
+    }
+
+    fn rnp(&mut self) {
+        if !self.flags.p {
             self.return_from_subroutine();
         }
     }
 
     fn rz(&mut self) {
-        if !self.flags.z {
+        if self.flags.z {
+            self.return_from_subroutine();
+        }
+    }
+
+    fn rc(&mut self) {
+        if self.flags.cy {
+            self.return_from_subroutine();
+        }
+    }
+
+    fn rp(&mut self) {
+        if self.flags.p {
             self.return_from_subroutine();
         }
     }
@@ -1717,6 +1762,56 @@ mod tests {
     }
 
     #[test]
+    fn test_cz_zero_unset() {
+        let mut cpu = Cpu::new();
+        cpu.flags.z = false;
+        let pc = get_random_number(0xFFF0);
+        cpu.pc = pc.into();
+        let sp = get_random_number(0xFFF0);
+        cpu.sp = sp.into();
+        cpu.memory.ram[(pc + 2) as usize] = 0x6E;
+        cpu.memory.ram[(pc + 1) as usize] = 0x0D;
+        cpu.memory.ram[(sp + 1) as usize] = 0x33;
+        cpu.memory.ram[(sp + 2) as usize] = 0xA9;
+        cpu.cz();
+
+        assert_eq!(cpu.pc, 0x6E0D);
+    }
+
+    #[test]
+    fn test_cz_zero_set() {
+        let mut cpu = Cpu::new();
+        cpu.flags.z = true;
+        let pc = get_random_number(0xFFF0);
+        cpu.pc = pc.into();
+        let sp = get_random_number(0xFFF0);
+        cpu.sp = sp.into();
+        cpu.memory.ram[(pc + 2) as usize] = 0x6E;
+        cpu.memory.ram[(pc + 1) as usize] = 0x0D;
+        cpu.memory.ram[(sp + 1) as usize] = 0x33;
+        cpu.memory.ram[(sp + 2) as usize] = 0xA9;
+        cpu.cz();
+
+        assert_eq!(cpu.pc, pc + 2);
+    }
+
+    #[test]
+    fn test_call_subroutine() {
+        let mut cpu = Cpu::new();
+        let pc = get_random_number(0xFFFF);
+        let sp = get_random_number(0xFFFF);
+        cpu.pc = pc.into();
+        cpu.sp = sp.into();
+        cpu.memory.ram[(pc + 2) as usize] = 0x6E;
+        cpu.memory.ram[(pc + 1) as usize] = 0x0D;
+        cpu.memory.ram[(sp + 1) as usize] = 0x33;
+        cpu.memory.ram[(sp + 2) as usize] = 0xA9;
+        cpu.call_subroutine();
+
+        assert_eq!(cpu.pc, 0x6E0D);
+    }
+
+    #[test]
     fn test_push_operation() {
         let mut cpu = Cpu::new();
         cpu.d = 0x8Fu8.into();
@@ -1761,6 +1856,32 @@ mod tests {
         assert_eq!(cpu.flags.cy, false);
         assert_eq!(cpu.flags.z, false);
         assert_eq!(cpu.flags.s, false);
+    }
+
+    #[test]
+    fn test_aci_carry_set() {
+        let mut cpu = Cpu::new();
+        cpu.flags.cy = true;
+        cpu.a = 0x14u8.into();
+        let pc = get_random_number(0xFFF0);
+        cpu.pc = pc.into();
+        cpu.memory.ram[(pc + 1) as usize] = 0x42u8;
+        cpu.aci();
+
+        assert_eq!(cpu.a, 0x57);
+    }
+
+    #[test]
+    fn test_aci_carry_unset() {
+        let mut cpu = Cpu::new();
+        cpu.flags.cy = false;
+        cpu.a = 0x14u8.into();
+        let pc = get_random_number(0xFFF0);
+        cpu.pc = pc.into();
+        cpu.memory.ram[(pc + 1) as usize] = 0x42u8;
+        cpu.aci();
+
+        assert_eq!(cpu.a, 0x56);
     }
 
     #[test]
