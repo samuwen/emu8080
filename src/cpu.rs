@@ -86,13 +86,8 @@ impl Cpu {
             0xC3 => self.jmp(),
             0xC4 => self.cnz(),
             0xC5 | 0xD5 | 0xE5 | 0xF5 => self.push_operation(op.code),
-            // 0xC5 => {
-            //     op.operation_name = String::from("PUSH");
-            // }
-            // // 0xC6 => {
-            // //     debug!("{:x} ADI  D8, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
+            0xC6 => self.adi(),
+            0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => self.rst_operation(op.code),
             // // 0xC7 => debug!("{:x} RST", self.registers.pc),
             // // 0xC8 => debug!("{:x} RZ", self.registers.pc),
             // // 0xC9 => debug!("{:x} RET", self.registers.pc),
@@ -143,9 +138,6 @@ impl Cpu {
             // //     );
             // //     self.registers.pc += 2
             // // }
-            // 0xD5 => {
-            //     op.operation_name = String::from("PUSH");
-            // }
             // // 0xD6 => {
             // //     debug!("{:x} SUI  D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
@@ -199,9 +191,6 @@ impl Cpu {
             // //     );
             // //     self.registers.pc += 2
             // // }
-            // 0xE5 => {
-            //     op.operation_name = String::from("PUSH");
-            // }
             // // 0xE6 => {
             // //     debug!("{:x} ANI  D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
@@ -253,9 +242,6 @@ impl Cpu {
             // //     );
             // //     self.registers.pc += 2
             // // }
-            // 0xF5 => {
-            //     op.operation_name = String::from("PUSH PSW");
-            // }
             // // 0xF6 => {
             // //     debug!("{:x} ORI  D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
@@ -352,6 +338,15 @@ impl Cpu {
             self.get_reg_value(code),
             &overflowing_add_u8,
         );
+    }
+
+    fn adi(&mut self) {
+        let a: u8 = self.a.into();
+        let next_byte = self.get_next_byte();
+        let (result, overflow) = a.overflowing_add(next_byte);
+        self.set_flags(&result, a, next_byte, overflow);
+        self.a = result.into();
+        self.pc += 2;
     }
 
     fn sbb_operation(&mut self, code: u8) {
@@ -680,13 +675,12 @@ impl Cpu {
     // Jump operations
 
     fn jmp(&mut self) {
-        let mem_ref = self.get_memory_reference();
-        self.pc = mem_ref.into();
+        self.pc = self.get_memory_reference().into();
     }
 
     fn jnz(&mut self) {
         if self.flags.z {
-            self.pc = self.get_memory_reference().into();
+            self.jmp();
         } else {
             self.pc += 2;
         }
@@ -715,6 +709,11 @@ impl Cpu {
             let (msb, lsb) = self.pop_off_stack();
             self.pc = self.get_pair_value(msb, lsb).into()
         }
+    }
+
+    fn rst_operation(&mut self, code: u8) {
+        self.push_to_stack(self.pc.into());
+        self.pc = (code & 0x38).into();
     }
 
     fn mov_b_operation(&mut self, code: u8) {
@@ -918,6 +917,10 @@ impl Cpu {
         let low_adr: u16 = self.memory.ram[usize::from(self.pc + 1)].into();
         let high_adr: u16 = self.memory.ram[usize::from(self.pc + 2)].into();
         (high_adr << 8) | low_adr
+    }
+
+    fn get_next_byte(self) -> u8 {
+        self.memory.ram[usize::from(self.pc + 1)]
     }
 
     fn push_to_stack(&mut self, val: u16) {
@@ -1675,6 +1678,33 @@ mod tests {
         assert_eq!(cpu.sp, 0x5028);
         assert_eq!(cpu.memory.ram[0x5029], 0x1F);
         assert_eq!(cpu.memory.ram[0x5028], 0x47);
+    }
+
+    #[test]
+    fn test_adi() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x14u8.into();
+        let pc = get_random_number(0xFFF0);
+        cpu.pc = pc.into();
+        cpu.memory.ram[(pc + 1) as usize] = 0x42u8;
+        cpu.adi();
+
+        assert_eq!(cpu.a, 0x56);
+        assert_eq!(cpu.flags.p, true);
+        assert_eq!(cpu.flags.ac, false);
+        assert_eq!(cpu.flags.cy, false);
+        assert_eq!(cpu.flags.z, false);
+        assert_eq!(cpu.flags.s, false);
+    }
+
+    #[test]
+    fn test_rst_operation() {
+        let mut cpu = Cpu::new();
+        cpu.sp = get_random_number(0xFFF0).into();
+        cpu.pc = get_random_number(0xFFF0).into();
+        cpu.rst_operation(0xDF);
+
+        assert_eq!(cpu.pc, 0x18);
     }
 
     fn test_flag_values(cpu: &Cpu, p: bool, s: bool, z: bool, cy: bool, ac: bool) {
