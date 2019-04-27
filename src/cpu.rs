@@ -85,15 +85,7 @@ impl Cpu {
             0xC2 => self.jnz(),
             0xC3 => self.jmp(),
             0xC4 => self.cnz(),
-            // // 0xC4 => {
-            // //     debug!(
-            // //         "{:x} CNZ   {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
+            0xC5 | 0xD5 | 0xE5 | 0xF5 => self.push_operation(op.code),
             // 0xC5 => {
             //     op.operation_name = String::from("PUSH");
             // }
@@ -518,31 +510,61 @@ impl Cpu {
     }
 
     fn pop_operation(&mut self, code: u8) {
+        let (msb, lsb) = self.pop_off_stack();
         match code {
             0xC1 => {
-                self.b = self.memory.ram[usize::from(self.sp) + 1].into();
-                self.c = self.memory.ram[usize::from(self.sp)].into();
+                self.b = msb.into();
+                self.c = lsb.into();
             }
             0xD1 => {
-                self.d = self.memory.ram[usize::from(self.sp) + 1].into();
-                self.e = self.memory.ram[usize::from(self.sp)].into();
+                self.d = msb.into();
+                self.e = lsb.into();
             }
             0xE1 => {
-                self.h = self.memory.ram[usize::from(self.sp) + 1].into();
-                self.l = self.memory.ram[usize::from(self.sp)].into();
+                self.h = msb.into();
+                self.l = lsb.into();
             }
             0xF1 => {
-                self.a = self.memory.ram[usize::from(self.sp) + 1].into();
-                let val: u8 = self.memory.ram[usize::from(self.sp)].into();
-                self.flags.s = (val & 0x80) >> 7 == 1;
-                self.flags.z = (val & 0x40) >> 6 == 1;
-                self.flags.ac = (val & 0x10) >> 4 == 1;
-                self.flags.p = (val & 0x4) >> 2 == 1;
-                self.flags.cy = (val & 0x1) == 1;
+                self.a = msb.into();
+                self.flags.s = (lsb & 0x80) >> 7 == 1;
+                self.flags.z = (lsb & 0x40) >> 6 == 1;
+                self.flags.ac = (lsb & 0x10) >> 4 == 1;
+                self.flags.p = (lsb & 0x4) >> 2 == 1;
+                self.flags.cy = (lsb & 0x1) == 1;
             }
             _ => panic!("Bug exists in opcode routing"),
         }
+        self.sp += 2;
         self.pc += 2;
+    }
+
+    fn push_operation(&mut self, code: u8) {
+        match code {
+            0xC5 => {
+                let val = self.get_reg_pair_value(self.b, self.c);
+                self.push_to_stack(val);
+            }
+            0xD5 => {
+                let val = self.get_reg_pair_value(self.d, self.e);
+                self.push_to_stack(val);
+            }
+            0xE5 => {
+                let val = self.get_reg_pair_value(self.h, self.l);
+                self.push_to_stack(val);
+            }
+            0xF5 => {
+                let msb: u8 = self.a.into();
+                let mut lsb: u8 = 0;
+                lsb += (self.flags.s as u8) << 7;
+                lsb += (self.flags.z as u8) << 6;
+                lsb += (self.flags.ac as u8) << 4;
+                lsb += (self.flags.p as u8) << 2;
+                lsb += 1 << 1;
+                lsb += self.flags.cy as u8;
+                self.push_to_stack(((msb as u16) << 8) | lsb as u16);
+            }
+            _ => panic!("Bug in opcode routing"),
+        }
     }
 
     fn rlc(&mut self) {
@@ -672,13 +694,17 @@ impl Cpu {
 
     // Call operations
 
+    fn call_subroutine(&mut self) {
+        let mem_ref = self.get_memory_reference();
+        self.push_to_stack(self.pc.into());
+        self.pc = mem_ref.into();
+    }
+
     fn cnz(&mut self) {
         if self.flags.z {
-            let mem_ref = self.get_memory_reference();
-            self.push_to_stack(self.pc.into());
-            self.pc = mem_ref.into();
+            self.call_subroutine()
         } else {
-            self.pc += 2;
+            self.pc += 2
         }
     }
 
@@ -686,7 +712,8 @@ impl Cpu {
 
     fn rnz(&mut self) {
         if self.flags.z {
-            self.pc = self.pop_off_stack();
+            let (msb, lsb) = self.pop_off_stack();
+            self.pc = self.get_pair_value(msb, lsb).into()
         }
     }
 
@@ -880,7 +907,11 @@ impl Cpu {
     }
 
     fn get_reg_pair_value(self, msb: Register, lsb: Register) -> u16 {
-        (u16::from(msb) << 8) | u16::from(lsb)
+        self.get_pair_value(msb.into(), lsb.into())
+    }
+
+    fn get_pair_value(self, msb: u8, lsb: u8) -> u16 {
+        ((msb as u16) << 8) | lsb as u16
     }
 
     fn get_memory_reference(self) -> u16 {
@@ -896,11 +927,11 @@ impl Cpu {
         self.sp -= 2;
     }
 
-    fn pop_off_stack(&mut self) -> Pointer {
-        let lsb: u16 = self.memory.ram[usize::from(self.sp + 1)].into();
-        let msb: u16 = self.memory.ram[usize::from(self.sp + 2)].into();
+    fn pop_off_stack(&mut self) -> (u8, u8) {
+        let lsb = self.memory.ram[usize::from(self.sp)].into();
+        let msb = self.memory.ram[usize::from(self.sp + 1)].into();
         self.sp += 2;
-        ((msb << 8) | lsb).into()
+        (msb, lsb)
     }
 
     fn return_split_registers(val: u16) -> (Register, Register) {
@@ -1614,6 +1645,36 @@ mod tests {
         cpu.cnz();
 
         assert_eq!(cpu.pc, pc + 2);
+    }
+
+    #[test]
+    fn test_push_operation() {
+        let mut cpu = Cpu::new();
+        cpu.d = 0x8Fu8.into();
+        cpu.e = 0x9Du8.into();
+        cpu.sp = 0x3A2Cu16.into();
+        cpu.push_operation(0xD5);
+
+        assert_eq!(cpu.sp, 0x3A2A);
+        assert_eq!(cpu.memory.ram[0x3A2B], 0x8F);
+        assert_eq!(cpu.memory.ram[0x3A2A], 0x9D);
+    }
+
+    #[test]
+    fn test_push_operation_psw() {
+        let mut cpu = Cpu::new();
+        cpu.a = 0x1Fu8.into();
+        cpu.sp = 0x502Au16.into();
+        cpu.flags.cy = true;
+        cpu.flags.z = true;
+        cpu.flags.p = true;
+        cpu.flags.s = false;
+        cpu.flags.ac = false;
+        cpu.push_operation(0xF5);
+
+        assert_eq!(cpu.sp, 0x5028);
+        assert_eq!(cpu.memory.ram[0x5029], 0x1F);
+        assert_eq!(cpu.memory.ram[0x5028], 0x47);
     }
 
     fn test_flag_values(cpu: &Cpu, p: bool, s: bool, z: bool, cy: bool, ac: bool) {
