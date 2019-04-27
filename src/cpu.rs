@@ -3,14 +3,12 @@ mod memory;
 mod opcode;
 mod pointers;
 mod registers;
-mod stack;
 
 use flags::Flags;
 use memory::Memory;
 use opcode::Opcode;
 use pointers::Pointer;
 use registers::Register;
-use stack::Stack;
 
 #[derive(Clone, Copy, Default)]
 pub struct Cpu {
@@ -24,7 +22,6 @@ pub struct Cpu {
     pc: Pointer,
     sp: Pointer,
     memory: Memory,
-    stack: Stack,
     flags: Flags,
 }
 
@@ -83,7 +80,9 @@ impl Cpu {
             0xA8...0xAF => self.xra_operation(op.code),
             0xB0...0xB7 => self.ora_operation(op.code),
             0xB8...0xBF => self.cmp_operation(op.code),
-            // // 0xC0 => debug!("{:x} RNZ", self.registers.pc),
+            0xC0 => self.rnz(),
+            0xC1 | 0xD1 | 0xE1 | 0xF1 => self.pop_operation(op.code),
+            0xC3 => self.jmp(),
             // // 0xC1 => debug!("{:x} POP   B", self.registers.pc),
             // // 0xC2 => {
             // //     debug!(
@@ -94,10 +93,6 @@ impl Cpu {
             // //     );
             // //     self.registers.pc += 2
             // // }
-            // 0xC3 => {
-            //     op.operation_name = String::from("JMP");
-            //     self.registers.pc = ((op.assc_bytes.0 as u16) << 8 as u16) + op.assc_bytes.1 as u16;
-            // }
             // // 0xC4 => {
             // //     debug!(
             // //         "{:x} CNZ   {:x}  {:x}",
@@ -530,6 +525,35 @@ impl Cpu {
             0x3E => self.a = self.memory.ram[(usize::from(self.pc) + 1)].into(),
             _ => panic!("Bug exists in opcode routing"),
         }
+        self.pc += 1
+    }
+
+    fn pop_operation(&mut self, code: u8) {
+        match code {
+            0xC1 => {
+                self.b = self.memory.ram[usize::from(self.sp) + 1].into();
+                self.c = self.memory.ram[usize::from(self.sp)].into();
+            }
+            0xD1 => {
+                self.d = self.memory.ram[usize::from(self.sp) + 1].into();
+                self.e = self.memory.ram[usize::from(self.sp)].into();
+            }
+            0xE1 => {
+                self.h = self.memory.ram[usize::from(self.sp) + 1].into();
+                self.l = self.memory.ram[usize::from(self.sp)].into();
+            }
+            0xF1 => {
+                self.a = self.memory.ram[usize::from(self.sp) + 1].into();
+                let val: u8 = self.memory.ram[usize::from(self.sp)].into();
+                self.flags.s = (val & 0x80) >> 7 == 1;
+                self.flags.z = (val & 0x40) >> 6 == 1;
+                self.flags.ac = (val & 0x10) >> 4 == 1;
+                self.flags.p = (val & 0x4) >> 2 == 1;
+                self.flags.cy = (val & 0x1) == 1;
+            }
+            _ => panic!("Bug exists in opcode routing"),
+        }
+        self.pc += 2;
     }
 
     fn rlc(&mut self) {
@@ -586,6 +610,7 @@ impl Cpu {
         let mem_add = self.get_memory_reference();
         self.memory.ram[mem_add as usize] = self.l.into();
         self.memory.ram[(mem_add + 1) as usize] = self.h.into();
+        self.pc += 2;
     }
 
     fn daa(&mut self) {
@@ -608,6 +633,7 @@ impl Cpu {
         let mem_add = self.get_memory_reference();
         self.h = self.memory.ram[mem_add as usize].into();
         self.l = self.memory.ram[(mem_add + 1) as usize].into();
+        self.pc += 2;
     }
 
     fn cma(&mut self) {
@@ -619,6 +645,7 @@ impl Cpu {
     fn sta(&mut self) {
         let mem_add = self.get_memory_reference();
         self.memory.ram[mem_add as usize] = self.a.into();
+        self.pc += 2;
     }
 
     fn stc(&mut self) {
@@ -628,6 +655,7 @@ impl Cpu {
     fn lda(&mut self) {
         let mem_add = self.get_memory_reference();
         self.a = self.memory.ram[mem_add as usize].into();
+        self.pc += 2;
     }
 
     fn cmc(&mut self) {
@@ -636,6 +664,17 @@ impl Cpu {
 
     fn hlt(&mut self) {
         // not sure how to implement yet
+    }
+
+    fn jmp(&mut self) {
+        let mem_ref = self.get_memory_reference();
+        self.pc = mem_ref.into();
+    }
+
+    fn rnz(&mut self) {
+        if self.flags.z {
+            self.pc = self.sp.into();
+        }
     }
 
     fn mov_b_operation(&mut self, code: u8) {
@@ -1419,6 +1458,71 @@ mod tests {
         cpu.mov_d_operation(0x56);
 
         assert_eq!(cpu.d, 0x4C);
+    }
+
+    #[test]
+    fn test_jmp() {
+        let mut cpu = Cpu::new();
+        let pc: u8 = get_random_number(0xFFFC) as u8;
+        cpu.pc = pc.into();
+        cpu.memory.ram[(pc + 1) as usize] = 0x00;
+        cpu.memory.ram[(pc + 2) as usize] = 0x3E;
+        cpu.jmp();
+
+        assert_eq!(u16::from(cpu.pc), 0x3E00);
+    }
+
+    #[test]
+    fn test_rnz_z_set() {
+        let mut cpu = Cpu::new();
+        let pc = get_random_number(0xFFFF);
+        let new_pc = get_random_number(0xFFFF);
+        cpu.pc = pc.into();
+        cpu.flags.z = true;
+        cpu.sp = new_pc.into();
+        cpu.rnz();
+
+        assert_eq!(cpu.pc, new_pc);
+    }
+
+    #[test]
+    fn test_rnz_z_unset() {
+        let mut cpu = Cpu::new();
+        let pc = get_random_number(0xFFFF);
+        let new_pc = get_random_number(0xFFFF);
+        cpu.pc = pc.into();
+        cpu.sp = new_pc.into();
+        cpu.rnz();
+
+        assert_eq!(cpu.pc, pc);
+    }
+
+    #[test]
+    fn test_pop_non_psw() {
+        let mut cpu = Cpu::new();
+        cpu.memory.ram[0x1239] = 0x3D;
+        cpu.memory.ram[0x123A] = 0x93;
+        cpu.sp = 0x1239u16.into();
+        cpu.pop_operation(0xE1);
+
+        assert_eq!(cpu.l, 0x3D);
+        assert_eq!(cpu.h, 0x93);
+    }
+
+    #[test]
+    fn test_pop_psw() {
+        let mut cpu = Cpu::new();
+        cpu.memory.ram[0x2C00] = 0xC3;
+        cpu.memory.ram[0x2C01] = 0xFF;
+        cpu.sp = 0x2C00u16.into();
+        cpu.pop_operation(0xF1);
+
+        assert_eq!(cpu.a, 0xFF);
+        assert_eq!(cpu.flags.s, true);
+        assert_eq!(cpu.flags.z, true);
+        assert_eq!(cpu.flags.ac, false);
+        assert_eq!(cpu.flags.p, false);
+        assert_eq!(cpu.flags.cy, true);
     }
 
     fn test_flag_values(cpu: &Cpu, p: bool, s: bool, z: bool, cy: bool, ac: bool) {

@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, BitAnd};
+use std::ops::{Add, AddAssign, BitAnd, SubAssign};
 
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Pointer {
@@ -46,6 +46,12 @@ impl Add<u16> for Pointer {
 impl AddAssign<u16> for Pointer {
     fn add_assign(&mut self, other: u16) {
         *self = Pointer { x: self.x + other }
+    }
+}
+
+impl SubAssign<u16> for Pointer {
+    fn sub_assign(&mut self, other: u16) {
+        *self = Pointer { x: self.x - other }
     }
 }
 
