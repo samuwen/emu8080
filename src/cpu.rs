@@ -82,17 +82,9 @@ impl Cpu {
             0xB8...0xBF => self.cmp_operation(op.code),
             0xC0 => self.rnz(),
             0xC1 | 0xD1 | 0xE1 | 0xF1 => self.pop_operation(op.code),
+            0xC2 => self.jnz(),
             0xC3 => self.jmp(),
-            // // 0xC1 => debug!("{:x} POP   B", self.registers.pc),
-            // // 0xC2 => {
-            // //     debug!(
-            // //         "{:x} JNZ   {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
+            0xC4 => self.cnz(),
             // // 0xC4 => {
             // //     debug!(
             // //         "{:x} CNZ   {:x}  {:x}",
@@ -137,7 +129,6 @@ impl Cpu {
             // // }
             // // 0xCF => debug!("{:x} RST   1", self.registers.pc),
             // // 0xD0 => debug!("{:x} RNC", self.registers.pc),
-            // // 0xD1 => debug!("{:x} POP   D", self.registers.pc),
             // // 0xD2 => {
             // //     debug!(
             // //         "{:x} JNC   {:x}  {:x}",
@@ -197,7 +188,6 @@ impl Cpu {
             // // }
             // // 0xDF => debug!("{:x} RST   3", self.registers.pc),
             // // 0xE0 => debug!("{:x} RPO", self.registers.pc),
-            // // 0xE1 => debug!("{:x} POP   H", self.registers.pc),
             // // 0xE2 => {
             // //     debug!(
             // //         "{:x} JPO   {:x}  {:x}",
@@ -252,7 +242,6 @@ impl Cpu {
             // // }
             // // 0xEF => debug!("{:x} RST   5", self.registers.pc),
             // // 0xF0 => debug!("{:x} RP", self.registers.pc),
-            // // 0xF1 => debug!("{:x} POP PSW", self.registers.pc),
             // // 0xF2 => {
             // //     debug!(
             // //         "{:x} JP    {:x}  {:x}",
@@ -666,14 +655,38 @@ impl Cpu {
         // not sure how to implement yet
     }
 
+    // Jump operations
+
     fn jmp(&mut self) {
         let mem_ref = self.get_memory_reference();
         self.pc = mem_ref.into();
     }
 
+    fn jnz(&mut self) {
+        if self.flags.z {
+            self.pc = self.get_memory_reference().into();
+        } else {
+            self.pc += 2;
+        }
+    }
+
+    // Call operations
+
+    fn cnz(&mut self) {
+        if self.flags.z {
+            let mem_ref = self.get_memory_reference();
+            self.push_to_stack(self.pc.into());
+            self.pc = mem_ref.into();
+        } else {
+            self.pc += 2;
+        }
+    }
+
+    // Return operations
+
     fn rnz(&mut self) {
         if self.flags.z {
-            self.pc = self.sp.into();
+            self.pc = self.pop_off_stack();
         }
     }
 
@@ -845,10 +858,6 @@ impl Cpu {
         Cpu::return_split_registers(result)
     }
 
-    fn return_split_registers(val: u16) -> (Register, Register) {
-        (((val & 0xFF00) >> 8).into(), (val & 0xFF).into())
-    }
-
     fn get_reg_value(self, code: u8) -> u8 {
         self.get_register(code).into()
     }
@@ -879,6 +888,29 @@ impl Cpu {
         let high_adr: u16 = self.memory.ram[usize::from(self.pc + 2)].into();
         (high_adr << 8) | low_adr
     }
+
+    fn push_to_stack(&mut self, val: u16) {
+        let (msb, lsb) = Cpu::return_split_values(val);
+        self.memory.ram[usize::from(self.sp - 1)] = msb;
+        self.memory.ram[usize::from(self.sp - 2)] = lsb;
+        self.sp -= 2;
+    }
+
+    fn pop_off_stack(&mut self) -> Pointer {
+        let lsb: u16 = self.memory.ram[usize::from(self.sp + 1)].into();
+        let msb: u16 = self.memory.ram[usize::from(self.sp + 2)].into();
+        self.sp += 2;
+        ((msb << 8) | lsb).into()
+    }
+
+    fn return_split_registers(val: u16) -> (Register, Register) {
+        let (x, y) = Cpu::return_split_values(val);
+        (x.into(), y.into())
+    }
+
+    fn return_split_values(val: u16) -> (u8, u8) {
+        (((val & 0xFF00) >> 8) as u8, (val & 0xFF) as u8)
+    }
 }
 
 fn overflowing_add_u8(val: u8, operand: u8) -> (u8, bool) {
@@ -902,10 +934,6 @@ fn overflowing_sub_u8(val: u8, operand: u8) -> (u8, bool) {
     let (result, overflow) = val.overflowing_sub(operand);
     let overflow = if overflow { false } else { true };
     (result, overflow)
-}
-
-fn overflowing_sub_u16(val: u16, operand: u16) -> (u16, bool) {
-    val.overflowing_sub(operand)
 }
 
 fn logical_and(val: u8, operand: u8) -> u8 {
@@ -1463,7 +1491,7 @@ mod tests {
     #[test]
     fn test_jmp() {
         let mut cpu = Cpu::new();
-        let pc: u8 = get_random_number(0xFFFC) as u8;
+        let pc: u8 = get_random_number(0xFFF0) as u8;
         cpu.pc = pc.into();
         cpu.memory.ram[(pc + 1) as usize] = 0x00;
         cpu.memory.ram[(pc + 2) as usize] = 0x3E;
@@ -1476,13 +1504,16 @@ mod tests {
     fn test_rnz_z_set() {
         let mut cpu = Cpu::new();
         let pc = get_random_number(0xFFFF);
-        let new_pc = get_random_number(0xFFFF);
+        let sp = get_random_number(0xFFFF);
         cpu.pc = pc.into();
         cpu.flags.z = true;
-        cpu.sp = new_pc.into();
+        cpu.sp = sp.into();
+        let msb: u16 = cpu.memory.ram[(sp - 1) as usize].into();
+        let lsb: u16 = cpu.memory.ram[(sp - 2) as usize].into();
+        let result = (msb << 8) | lsb;
         cpu.rnz();
 
-        assert_eq!(cpu.pc, new_pc);
+        assert_eq!(cpu.pc, result);
     }
 
     #[test]
@@ -1523,6 +1554,66 @@ mod tests {
         assert_eq!(cpu.flags.ac, false);
         assert_eq!(cpu.flags.p, false);
         assert_eq!(cpu.flags.cy, true);
+    }
+
+    #[test]
+    fn test_jnz_zero_set() {
+        let mut cpu = Cpu::new();
+        cpu.flags.z = true;
+        let pc = get_random_number(0xFFF0);
+        cpu.pc = pc.into();
+        cpu.memory.ram[(pc + 2) as usize] = 0xB9;
+        cpu.memory.ram[(pc + 1) as usize] = 0x66;
+        cpu.jnz();
+
+        assert_eq!(cpu.pc, 0xB966);
+    }
+
+    #[test]
+    fn test_jnz_zero_unset() {
+        let mut cpu = Cpu::new();
+        cpu.flags.z = false;
+        let pc = get_random_number(0xFFF0);
+        cpu.pc = pc.into();
+        cpu.memory.ram[(pc + 2) as usize] = 0xB9;
+        cpu.memory.ram[(pc + 1) as usize] = 0x66;
+        cpu.jnz();
+
+        assert_eq!(cpu.pc, pc + 2);
+    }
+
+    #[test]
+    fn test_cnz_zero_set() {
+        let mut cpu = Cpu::new();
+        cpu.flags.z = true;
+        let pc = get_random_number(0xFFF0);
+        cpu.pc = pc.into();
+        let sp = get_random_number(0xFFF0);
+        cpu.sp = sp.into();
+        cpu.memory.ram[(pc + 2) as usize] = 0x6E;
+        cpu.memory.ram[(pc + 1) as usize] = 0x0D;
+        cpu.memory.ram[(sp + 1) as usize] = 0x33;
+        cpu.memory.ram[(sp + 2) as usize] = 0xA9;
+        cpu.cnz();
+
+        assert_eq!(cpu.pc, 0x6E0D);
+    }
+
+    #[test]
+    fn test_cnz_zero_unset() {
+        let mut cpu = Cpu::new();
+        cpu.flags.z = false;
+        let pc = get_random_number(0xFFF0);
+        cpu.pc = pc.into();
+        let sp = get_random_number(0xFFF0);
+        cpu.sp = sp.into();
+        cpu.memory.ram[(pc + 2) as usize] = 0x6E;
+        cpu.memory.ram[(pc + 1) as usize] = 0x0D;
+        cpu.memory.ram[(sp + 1) as usize] = 0x33;
+        cpu.memory.ram[(sp + 2) as usize] = 0xA9;
+        cpu.cnz();
+
+        assert_eq!(cpu.pc, pc + 2);
     }
 
     fn test_flag_values(cpu: &Cpu, p: bool, s: bool, z: bool, cy: bool, ac: bool) {

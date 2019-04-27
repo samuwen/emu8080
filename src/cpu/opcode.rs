@@ -54,7 +54,9 @@ fn opcode_name(val: u8) -> String {
         0xB0...0xB7 => String::from("ORA"),
         0xB8...0xBF => String::from("CMP"),
         0xC1 | 0xD1 | 0xE1 | 0xF1 => String::from("POP"),
+        0xC2 => String::from("JNZ"),
         0xC3 => String::from("JMP"),
+        0xC4 => String::from("CNZ"),
         _ => panic!("How is babby formed"),
     }
 }
