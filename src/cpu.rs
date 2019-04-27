@@ -89,7 +89,8 @@ impl Cpu {
             0xC6 => self.adi(),
             0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => self.rst_operation(op.code),
             0xC8 => self.rz(),
-            // // 0xC9 => debug!("{:x} RET", self.registers.pc),
+            0xC9 => self.return_from_subroutine(),
+            0xCA => self.jz(),
             // // 0xCA => debug!("{:x} JZ", self.registers.pc),
             // // 0xCC => {
             // //     debug!(
@@ -672,6 +673,14 @@ impl Cpu {
 
     fn jnz(&mut self) {
         if self.flags.z {
+            self.jmp();
+        } else {
+            self.pc += 2;
+        }
+    }
+
+    fn jz(&mut self) {
+        if !self.flags.z {
             self.jmp();
         } else {
             self.pc += 2;
@@ -1648,6 +1657,32 @@ mod tests {
     }
 
     #[test]
+    fn test_jz_zero_unset() {
+        let mut cpu = Cpu::new();
+        cpu.flags.z = false;
+        let pc = get_random_number(0xFFF0);
+        cpu.pc = pc.into();
+        cpu.memory.ram[(pc + 2) as usize] = 0xB9;
+        cpu.memory.ram[(pc + 1) as usize] = 0x66;
+        cpu.jz();
+
+        assert_eq!(cpu.pc, 0xB966);
+    }
+
+    #[test]
+    fn test_jz_zero_set() {
+        let mut cpu = Cpu::new();
+        cpu.flags.z = true;
+        let pc = get_random_number(0xFFF0);
+        cpu.pc = pc.into();
+        cpu.memory.ram[(pc + 2) as usize] = 0xB9;
+        cpu.memory.ram[(pc + 1) as usize] = 0x66;
+        cpu.jz();
+
+        assert_eq!(cpu.pc, pc + 2);
+    }
+
+    #[test]
     fn test_cnz_zero_set() {
         let mut cpu = Cpu::new();
         cpu.flags.z = true;
@@ -1736,6 +1771,21 @@ mod tests {
         cpu.rst_operation(0xDF);
 
         assert_eq!(cpu.pc, 0x18);
+    }
+
+    #[test]
+    fn test_return_from_subroutine() {
+        let mut cpu = Cpu::new();
+        let pc = get_random_number(0xFFFF);
+        let sp = get_random_number(0xFFFF);
+        cpu.pc = pc.into();
+        cpu.sp = sp.into();
+        let msb: u16 = cpu.memory.ram[(sp - 1) as usize].into();
+        let lsb: u16 = cpu.memory.ram[(sp - 2) as usize].into();
+        let result = (msb << 8) | lsb;
+        cpu.return_from_subroutine();
+
+        assert_eq!(cpu.pc, result);
     }
 
     fn test_flag_values(cpu: &Cpu, p: bool, s: bool, z: bool, cy: bool, ac: bool) {
