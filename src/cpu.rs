@@ -100,32 +100,16 @@ impl Cpu {
             0xD4 => self.cnc(),
             0xD6 => self.sui(),
             0xD8 => self.rc(),
+            0xDA => self.jc(),
+            0xDB => unimplemented!(), // Contents of a device are loaded into cpu.a
             0xDC => self.cc(),
+            0xDE => self.sbi(),
+            0xE0 => self.rpo(),
+            0xE2 => self.jpo(),
+            0xEB => self.rpe(),
             0xF0 => self.rp(),
             0xF2 => self.jp(),
             0xF4 => self.cp(),
-            // // 0xD6 => {
-            // //     debug!("{:x} SUI  D8, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
-            // // 0xDA => {
-            // //     debug!(
-            // //         "{:x} JC    {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
-            // // 0xDB => {
-            // //     debug!("{:x} IN    D8, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
-            // // 0xDE => {
-            // //     debug!("{:x} SBI  D8, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
-            // // 0xE0 => debug!("{:x} RPO", self.registers.pc),
             // // 0xE2 => {
             // //     debug!(
             // //         "{:x} JPO   {:x}  {:x}",
@@ -149,7 +133,6 @@ impl Cpu {
             // //     debug!("{:x} ANI  D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
             // // }
-            // // 0xE8 => debug!("{:x} RPE", self.registers.pc),
             // // 0xE9 => debug!("{:x} PCHL", self.registers.pc),
             // // 0xEA => {
             // //     debug!(
@@ -238,6 +221,10 @@ impl Cpu {
         (val & 0x80) >> 7 == 1
     }
 
+    fn is_b1_set(val: u8) -> bool {
+        (val & 0x1) == 1
+    }
+
     #[inline]
     fn sets_parity_flag(&mut self, val: &u8) -> bool {
         let mut count = 0;
@@ -304,6 +291,12 @@ impl Cpu {
         self.pc += 1;
     }
 
+    fn sbi(&mut self) {
+        let operand = self.get_next_byte() + self.flags.cy as u8;
+        self.subtraction(operand);
+        self.pc += 1;
+    }
+
     fn cmp_operation(&mut self, code: u8) {
         let operand = self.get_reg_value(code);
         self.update_register(self.a, !operand + 1, &wrapping_add_u8);
@@ -317,17 +310,14 @@ impl Cpu {
 
     fn ana_operation(&mut self, code: u8) {
         self.logical_operation(self.get_reg_value(code), &logical_and);
-        // self.a = self.update_register(self.a, self.get_reg_value(code), &logical_and);
     }
 
     fn xra_operation(&mut self, code: u8) {
         self.logical_operation(self.get_reg_value(code), &logical_xor);
-        // self.a = self.update_register(self.a, self.get_reg_value(code), &logical_xor);
     }
 
     fn ora_operation(&mut self, code: u8) {
         self.logical_operation(self.get_reg_value(code), &logical_or);
-        // self.a = self.update_register(self.a, self.get_reg_value(code), &logical_or);
     }
 
     fn lxi_operation(&mut self, code: u8) {
@@ -511,9 +501,8 @@ impl Cpu {
 
     fn rlc(&mut self) {
         let reg_value: u8 = self.a.into();
-        let carry_flag = ((&reg_value & 0x80) >> 7) == 1;
         let temp: u8 = &reg_value << 1;
-        if carry_flag {
+        if Cpu::is_b7_set(reg_value) {
             self.flags.cy = true;
             self.a = (temp | 0x1).into();
         } else {
@@ -524,19 +513,18 @@ impl Cpu {
 
     fn ral(&mut self) {
         let reg_value: u8 = self.a.into();
-        let carry_flag = ((&reg_value & 0x80) >> 7) == 1;
         let temp: u8 = &reg_value << 1;
         self.a = if self.flags.cy {
             (temp | 0x1).into()
         } else {
             (temp | 0x0).into()
         };
-        self.flags.cy = carry_flag;
+        self.flags.cy = Cpu::is_b7_set(reg_value);
     }
 
     fn rrc(&mut self) {
         let reg_value: u8 = self.a.into();
-        let carry_flag = (&reg_value & 0x1) == 1;
+        let carry_flag = Cpu::is_b1_set(reg_value);
         let temp: u8 = &reg_value >> 1;
         if carry_flag {
             self.flags.cy = true;
@@ -549,14 +537,13 @@ impl Cpu {
 
     fn rar(&mut self) {
         let reg_value: u8 = self.a.into();
-        let carry_flag = (&reg_value & 0x1) == 1;
         let temp: u8 = &reg_value >> 1;
         self.a = if self.flags.cy {
             (temp | 0x80).into()
         } else {
             (temp | 0x0).into()
         };
-        self.flags.cy = carry_flag;
+        self.flags.cy = Cpu::is_b1_set(reg_value);
     }
 
     fn shld(&mut self) {
@@ -625,52 +612,44 @@ impl Cpu {
         self.pc = self.get_memory_reference().into();
     }
 
-    fn jnz(&mut self) {
-        if !self.flags.z {
+    fn jump_operation(&mut self, true_condition: bool) {
+        if true_condition {
             self.jmp()
         } else {
             self.pc += 2
         }
+    }
+
+    fn jnz(&mut self) {
+        self.jump_operation(!self.flags.z);
     }
 
     fn jnc(&mut self) {
-        if !self.flags.cy {
-            self.jmp()
-        } else {
-            self.pc += 2
-        }
+        self.jump_operation(!self.flags.cy);
     }
 
     fn jnp(&mut self) {
-        if !self.flags.p {
-            self.jmp()
-        } else {
-            self.pc += 2
-        }
+        self.jump_operation(!self.flags.p);
     }
 
     fn jz(&mut self) {
-        if self.flags.z {
-            self.jmp()
-        } else {
-            self.pc += 2
-        }
+        self.jump_operation(self.flags.z);
     }
 
     fn jc(&mut self) {
-        if self.flags.cy {
-            self.jmp()
-        } else {
-            self.pc += 2
-        }
+        self.jump_operation(self.flags.cy);
     }
 
     fn jp(&mut self) {
-        if self.flags.p {
-            self.jmp()
-        } else {
-            self.pc += 2
-        }
+        self.jump_operation(!self.flags.s);
+    }
+
+    fn jpo(&mut self) {
+        self.jump_operation(!self.flags.p);
+    }
+
+    fn jpe(&mut self) {
+        self.jump_operation(self.flags.p);
     }
 
     // Call operations
@@ -767,6 +746,18 @@ impl Cpu {
     }
 
     fn rp(&mut self) {
+        if !self.flags.s {
+            self.return_from_subroutine();
+        }
+    }
+
+    fn rpo(&mut self) {
+        if !self.flags.p {
+            self.return_from_subroutine();
+        }
+    }
+
+    fn rpe(&mut self) {
         if self.flags.p {
             self.return_from_subroutine();
         }
@@ -982,13 +973,6 @@ fn wrapping_sub_u16(val: u16, operand: u16) -> u16 {
 
 fn wrapping_sub_u8(val: u8, operand: u8) -> u8 {
     val.wrapping_sub(operand)
-}
-
-// Carries are inverted in subtraction
-fn overflowing_sub_u8(val: u8, operand: u8) -> (u8, bool) {
-    let (result, overflow) = val.overflowing_sub(operand);
-    let overflow = if overflow { false } else { true };
-    (result, overflow)
 }
 
 fn logical_and(val: u8, operand: u8) -> u8 {

@@ -72,6 +72,10 @@ fn opcode_name(val: u8) -> String {
         0xD4 => "CNC",
         0xD6 => "SUI",
         0xD8 => "RC",
+        0xDA => "JC",
+        0xDB => "IN",
+        0xDC => "CC",
+        0xE0 => "RPO",
         _ => panic!("How is babby formed"),
     })
 }
