@@ -23,6 +23,7 @@ pub struct Cpu {
     sp: Pointer,
     memory: Memory,
     flags: Flags,
+    interrupts_enabled: bool,
 }
 
 impl Cpu {
@@ -80,51 +81,27 @@ impl Cpu {
             0xA8...0xAF => self.xra_operation(op.code),
             0xB0...0xB7 => self.ora_operation(op.code),
             0xB8...0xBF => self.cmp_operation(op.code),
-            0xC0 => self.rnz(),
+            0xC0 | 0xC8 | 0xC9 | 0xD0 | 0xD8 | 0xE0 | 0xE8 | 0xF0 | 0xF8 => self.do_return(op.code),
             0xC1 | 0xD1 | 0xE1 | 0xF1 => self.pop_operation(op.code),
-            0xC2 => self.jnz(),
-            0xC3 => self.jmp(),
-            0xC4 => self.cnz(),
+            0xC2 | 0xC3 | 0xCA | 0xD2 | 0xDA | 0xE2 | 0xEA | 0xF2 | 0xFA => self.do_jump(op.code),
+            0xC4 | 0xCC | 0xCD | 0xD4 | 0xDC | 0xE4 | 0xEC | 0xF4 | 0xFC => self.do_call(op.code),
             0xC5 | 0xD5 | 0xE5 | 0xF5 => self.push_operation(op.code),
             0xC6 => self.adi(),
             0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => self.rst_operation(op.code),
-            0xC8 => self.rz(),
-            0xC9 => self.return_from_subroutine(true),
-            0xCA => self.jz(),
-            0xCC => self.cz(),
-            0xCD => self.call_subroutine(),
             0xCE => self.aci(),
-            0xD0 => self.rnc(),
-            0xD2 => self.jnc(),
             0xD3 => unimplemented!(), // Contents of cpu.a are sent to io device.
-            0xD4 => self.cnc(),
             0xD6 => self.sui(),
-            0xD8 => self.rc(),
-            0xDA => self.jc(),
             0xDB => unimplemented!(), // Contents of a device are loaded into cpu.a
-            0xDC => self.cc(),
             0xDE => self.sbi(),
-            0xE0 => self.rpo(),
-            0xE2 => self.jpo(),
             0xE3 => self.xthl(),
-            0xE4 => self.cpo(),
             0xE6 => self.ani(),
-            0xE8 => self.rpe(),
             0xE9 => self.pchl(),
-            0xEA => self.jpe(),
             0xEB => self.xchg(),
-            0xEC => self.cpe(),
             0xEE => self.xri(),
-            0xF0 => self.rp(),
-            0xF2 => self.jp(),
             0xF3 => self.disable_interrupts(),
-            0xF4 => self.cp(),
             0xF6 => self.ori(),
-            0xF8 => self.rm(),
             0xF9 => self.sphl(),
-            0xFA => self.jm(),
             0xFB => self.enable_interrupts(),
-            0xFC => self.cm(),
             0xFE => self.cpi(),
         }
         self.pc += 1;
@@ -139,7 +116,7 @@ impl Cpu {
     }
 
     #[inline]
-    fn set_carry_flag_addition(&mut self, op1: &u8, op2: &u8) {
+    fn set_carry_flag(&mut self, op1: &u8, op2: &u8) {
         self.flags.cy = (0xFF - op1) <= *op2
     }
 
@@ -149,11 +126,6 @@ impl Cpu {
         let v2 = op2 & 0xF;
         self.flags.ac = (0x10 - v1) <= v2
     }
-
-    // #[inline]
-    // fn set_carry_flag_subtraction(&mut self, op1: &u8, op2: &u8) {
-    //     self.flags.cy = (255 - op1) > *op2
-    // }
 
     fn is_b7_set(val: u8) -> bool {
         (val & 0x80) >> 7 == 1
@@ -187,12 +159,12 @@ impl Cpu {
 
     fn addition(&mut self, val: u8) {
         self.a = self.update_register(self.a, val, &wrapping_add_u8);
-        self.set_carry_flag_addition(&self.a.into(), &val);
+        self.set_carry_flag(&self.a.into(), &val);
     }
 
     fn subtraction(&mut self, val: u8) {
         self.a = self.update_register(self.a, !val + 1, &wrapping_add_u8);
-        self.set_carry_flag_addition(&val, &self.a.into());
+        self.set_carry_flag(&val, &self.a.into());
     }
 
     fn adc_operation(&mut self, code: u8) {
@@ -237,7 +209,7 @@ impl Cpu {
 
     fn compare(&mut self, operand: u8) {
         self.update_register(self.a, !operand + 1, &wrapping_add_u8);
-        self.set_carry_flag_addition(&self.a.into(), &operand);
+        self.set_carry_flag(&self.a.into(), &operand);
     }
 
     fn cmp_operation(&mut self, code: u8) {
@@ -350,7 +322,7 @@ impl Cpu {
                 let value = self.memory.ram[mem_ref as usize];
                 let result = value.wrapping_add(1);
                 self.set_flags(&result, value, 1);
-                self.set_carry_flag_addition(&value, &1);
+                self.set_carry_flag(&value, &1);
                 self.l = (result & 0xFF).into();
                 self.h = (result & 0x00FF).into();
             }
@@ -372,7 +344,7 @@ impl Cpu {
                 let value = self.memory.ram[mem_ref as usize];
                 let result = value.wrapping_sub(1);
                 self.set_flags(&result, value, 1);
-                self.set_carry_flag_addition(&value, &1);
+                self.set_carry_flag(&value, &1);
                 self.memory.ram[mem_ref as usize] = result;
             }
             0x3D => self.a = self.update_register(self.a, 1, &wrapping_sub_u8),
@@ -563,106 +535,53 @@ impl Cpu {
         // not sure how to implement yet
     }
 
-    // Jump operations
-
-    fn jmp(&mut self) {
-        self.pc = self.get_memory_reference().into();
-    }
-
     fn jump_operation(&mut self, true_condition: bool) {
         if true_condition {
-            self.jmp()
+            self.pc = self.get_memory_reference().into();
         } else {
             self.pc += 2
         }
     }
 
-    fn jnz(&mut self) {
-        self.jump_operation(!self.flags.z);
+    fn do_jump(&mut self, code: u8) {
+        self.jump_operation(match code {
+            0xC2 => !self.flags.z,
+            0xC3 => true,
+            0xCA => self.flags.z,
+            0xD2 => !self.flags.cy,
+            0xDA => self.flags.cy,
+            0xE2 => !self.flags.p,
+            0xEA => self.flags.p,
+            0xF2 => !self.flags.s,
+            0xFA => self.flags.s,
+            _ => panic!("Bug in opcode routing"),
+        })
     }
 
-    fn jnc(&mut self) {
-        self.jump_operation(!self.flags.cy);
-    }
-
-    fn jz(&mut self) {
-        self.jump_operation(self.flags.z);
-    }
-
-    fn jc(&mut self) {
-        self.jump_operation(self.flags.cy);
-    }
-
-    fn jp(&mut self) {
-        self.jump_operation(!self.flags.s);
-    }
-
-    fn jm(&mut self) {
-        self.jump_operation(self.flags.s);
-    }
-
-    fn jpo(&mut self) {
-        self.jump_operation(!self.flags.p);
-    }
-
-    fn jpe(&mut self) {
-        self.jump_operation(self.flags.p);
-    }
-
-    fn pchl(&mut self) {
-        let value = self.get_reg_pair_value(self.h, self.l);
-        self.pc = value.into();
-    }
-
-    // Call operations
-
-    fn call_subroutine(&mut self) {
-        let mem_ref = self.get_memory_reference();
-        self.push_to_stack(self.pc.into());
-        self.pc = mem_ref.into();
-    }
-
-    fn call_operation(&mut self, true_condition: bool) {
+    fn call_subroutine(&mut self, true_condition: bool) {
         if true_condition {
-            self.call_subroutine()
+            let mem_ref = self.get_memory_reference();
+            self.push_to_stack(self.pc.into());
+            self.pc = mem_ref.into();
         } else {
             self.pc += 2
         }
     }
 
-    fn cnz(&mut self) {
-        self.call_operation(!self.flags.z);
+    fn do_call(&mut self, code: u8) {
+        self.call_subroutine(match code {
+            0xC4 => !self.flags.z,
+            0xCC => self.flags.z,
+            0xCD => true,
+            0xD4 => !self.flags.cy,
+            0xDC => self.flags.cy,
+            0xE4 => !self.flags.p,
+            0xEC => self.flags.p,
+            0xF4 => !self.flags.s,
+            0xFC => self.flags.s,
+            _ => panic!("Bug in opcode routing"),
+        })
     }
-
-    fn cnc(&mut self) {
-        self.call_operation(!self.flags.cy);
-    }
-
-    fn cpo(&mut self) {
-        self.call_operation(!self.flags.p);
-    }
-
-    fn cpe(&mut self) {
-        self.call_operation(self.flags.p);
-    }
-
-    fn cz(&mut self) {
-        self.call_operation(self.flags.z);
-    }
-
-    fn cc(&mut self) {
-        self.call_operation(self.flags.cy);
-    }
-
-    fn cm(&mut self) {
-        self.call_operation(self.flags.s);
-    }
-
-    fn cp(&mut self) {
-        self.call_operation(!self.flags.s);
-    }
-
-    // Return operations
 
     fn return_from_subroutine(&mut self, true_condition: bool) {
         if true_condition {
@@ -671,36 +590,19 @@ impl Cpu {
         }
     }
 
-    fn rc(&mut self) {
-        self.return_from_subroutine(self.flags.cy);
-    }
-
-    fn rnc(&mut self) {
-        self.return_from_subroutine(!self.flags.cy);
-    }
-
-    fn rz(&mut self) {
-        self.return_from_subroutine(self.flags.z);
-    }
-
-    fn rnz(&mut self) {
-        self.return_from_subroutine(!self.flags.z);
-    }
-
-    fn rm(&mut self) {
-        self.return_from_subroutine(self.flags.s);
-    }
-
-    fn rp(&mut self) {
-        self.return_from_subroutine(!self.flags.s);
-    }
-
-    fn rpe(&mut self) {
-        self.return_from_subroutine(self.flags.p);
-    }
-
-    fn rpo(&mut self) {
-        self.return_from_subroutine(!self.flags.p);
+    fn do_return(&mut self, code: u8) {
+        self.return_from_subroutine(match code {
+            0xC0 => !self.flags.z,
+            0xC8 => self.flags.z,
+            0xC9 => true,
+            0xD0 => !self.flags.cy,
+            0xD8 => self.flags.cy,
+            0xE0 => !self.flags.p,
+            0xE8 => self.flags.p,
+            0xF0 => !self.flags.s,
+            0xF8 => self.flags.s,
+            _ => panic!("Bug in opcode routing"),
+        })
     }
 
     fn rst_operation(&mut self, code: u8) {
@@ -776,6 +678,11 @@ impl Cpu {
         }
     }
 
+    fn pchl(&mut self) {
+        let value = self.get_reg_pair_value(self.h, self.l);
+        self.pc = value.into();
+    }
+
     fn xthl(&mut self) {
         let l_val: u8 = self.l.into();
         let h_val: u8 = self.h.into();
@@ -844,11 +751,11 @@ impl Cpu {
     }
 
     fn disable_interrupts(&mut self) {
-        // idk how to do this
+        self.interrupts_enabled = false
     }
 
     fn enable_interrupts(&mut self) {
-        // idk how to do this
+        self.interrupts_enabled = true;
     }
 
     fn update_register(&mut self, reg: Register, op: u8, f: &Fn(u8, u8) -> u8) -> Register {
@@ -1427,76 +1334,6 @@ mod tests {
     }
 
     #[test]
-    fn test_jmp() {
-        let mut cpu = Cpu::new();
-        let pc: u8 = get_random_number(0xFFF0) as u8;
-        cpu.pc = pc.into();
-        cpu.memory.ram[(pc + 1) as usize] = 0x00;
-        cpu.memory.ram[(pc + 2) as usize] = 0x3E;
-        cpu.jmp();
-
-        assert_eq!(u16::from(cpu.pc), 0x3E00);
-    }
-
-    #[test]
-    fn test_rnz_z_unset() {
-        let mut cpu = Cpu::new();
-        let pc = get_random_number(0xFFFF);
-        let sp = get_random_number(0xFFFF);
-        cpu.pc = pc.into();
-        cpu.flags.z = false;
-        cpu.sp = sp.into();
-        let msb: u16 = cpu.memory.ram[(sp - 1) as usize].into();
-        let lsb: u16 = cpu.memory.ram[(sp - 2) as usize].into();
-        let result = (msb << 8) | lsb;
-        cpu.rnz();
-
-        assert_eq!(cpu.pc, result);
-    }
-
-    #[test]
-    fn test_rnz_z_set() {
-        let mut cpu = Cpu::new();
-        let pc = get_random_number(0xFFFF);
-        let new_pc = get_random_number(0xFFFF);
-        cpu.flags.z = true;
-        cpu.pc = pc.into();
-        cpu.sp = new_pc.into();
-        cpu.rnz();
-
-        assert_eq!(cpu.pc, pc);
-    }
-
-    #[test]
-    fn test_rz_z_set() {
-        let mut cpu = Cpu::new();
-        let pc = get_random_number(0xFFFF);
-        let sp = get_random_number(0xFFFF);
-        cpu.pc = pc.into();
-        cpu.flags.z = true;
-        cpu.sp = sp.into();
-        let msb: u16 = cpu.memory.ram[(sp - 1) as usize].into();
-        let lsb: u16 = cpu.memory.ram[(sp - 2) as usize].into();
-        let result = (msb << 8) | lsb;
-        cpu.rz();
-
-        assert_eq!(cpu.pc, result);
-    }
-
-    #[test]
-    fn test_rz_z_unset() {
-        let mut cpu = Cpu::new();
-        let pc = get_random_number(0xFFFF);
-        let new_pc = get_random_number(0xFFFF);
-        cpu.flags.z = false;
-        cpu.pc = pc.into();
-        cpu.sp = new_pc.into();
-        cpu.rz();
-
-        assert_eq!(cpu.pc, pc);
-    }
-
-    #[test]
     fn test_pop_non_psw() {
         let mut cpu = Cpu::new();
         cpu.memory.ram[0x1239] = 0x3D;
@@ -1525,126 +1362,6 @@ mod tests {
     }
 
     #[test]
-    fn test_jnz_zero_unset() {
-        let mut cpu = Cpu::new();
-        cpu.flags.z = false;
-        let pc = get_random_number(0xFFF0);
-        cpu.pc = pc.into();
-        cpu.memory.ram[(pc + 2) as usize] = 0xB9;
-        cpu.memory.ram[(pc + 1) as usize] = 0x66;
-        cpu.jnz();
-
-        assert_eq!(cpu.pc, 0xB966);
-    }
-
-    #[test]
-    fn test_jnz_zero_set() {
-        let mut cpu = Cpu::new();
-        cpu.flags.z = true;
-        let pc = get_random_number(0xFFF0);
-        cpu.pc = pc.into();
-        cpu.memory.ram[(pc + 2) as usize] = 0xB9;
-        cpu.memory.ram[(pc + 1) as usize] = 0x66;
-        cpu.jnz();
-
-        assert_eq!(cpu.pc, pc + 2);
-    }
-
-    #[test]
-    fn test_jz_zero_set() {
-        let mut cpu = Cpu::new();
-        cpu.flags.z = true;
-        let pc = get_random_number(0xFFF0);
-        cpu.pc = pc.into();
-        cpu.memory.ram[(pc + 2) as usize] = 0xB9;
-        cpu.memory.ram[(pc + 1) as usize] = 0x66;
-        cpu.jz();
-
-        assert_eq!(cpu.pc, 0xB966);
-    }
-
-    #[test]
-    fn test_jz_zero_unset() {
-        let mut cpu = Cpu::new();
-        cpu.flags.z = false;
-        let pc = get_random_number(0xFFF0);
-        cpu.pc = pc.into();
-        cpu.memory.ram[(pc + 2) as usize] = 0xB9;
-        cpu.memory.ram[(pc + 1) as usize] = 0x66;
-        cpu.jz();
-
-        assert_eq!(cpu.pc, pc + 2);
-    }
-
-    #[test]
-    fn test_cnz_zero_unset() {
-        let mut cpu = Cpu::new();
-        cpu.flags.z = false;
-        let pc = get_random_number(0xFFF0);
-        cpu.pc = pc.into();
-        let sp = get_random_number(0xFFF0);
-        cpu.sp = sp.into();
-        cpu.memory.ram[(pc + 2) as usize] = 0x6E;
-        cpu.memory.ram[(pc + 1) as usize] = 0x0D;
-        cpu.memory.ram[(sp + 1) as usize] = 0x33;
-        cpu.memory.ram[(sp + 2) as usize] = 0xA9;
-        cpu.cnz();
-
-        assert_eq!(cpu.pc, 0x6E0D);
-    }
-
-    #[test]
-    fn test_cnz_zero_set() {
-        let mut cpu = Cpu::new();
-        cpu.flags.z = true;
-        let pc = get_random_number(0xFFF0);
-        cpu.pc = pc.into();
-        let sp = get_random_number(0xFFF0);
-        cpu.sp = sp.into();
-        cpu.memory.ram[(pc + 2) as usize] = 0x6E;
-        cpu.memory.ram[(pc + 1) as usize] = 0x0D;
-        cpu.memory.ram[(sp + 1) as usize] = 0x33;
-        cpu.memory.ram[(sp + 2) as usize] = 0xA9;
-        cpu.cnz();
-
-        assert_eq!(cpu.pc, pc + 2);
-    }
-
-    #[test]
-    fn test_cz_zero_set() {
-        let mut cpu = Cpu::new();
-        cpu.flags.z = true;
-        let pc = get_random_number(0xFFF0);
-        cpu.pc = pc.into();
-        let sp = get_random_number(0xFFF0);
-        cpu.sp = sp.into();
-        cpu.memory.ram[(pc + 2) as usize] = 0x6E;
-        cpu.memory.ram[(pc + 1) as usize] = 0x0D;
-        cpu.memory.ram[(sp + 1) as usize] = 0x33;
-        cpu.memory.ram[(sp + 2) as usize] = 0xA9;
-        cpu.cz();
-
-        assert_eq!(cpu.pc, 0x6E0D);
-    }
-
-    #[test]
-    fn test_cz_zero_unset() {
-        let mut cpu = Cpu::new();
-        cpu.flags.z = false;
-        let pc = get_random_number(0xFFF0);
-        cpu.pc = pc.into();
-        let sp = get_random_number(0xFFF0);
-        cpu.sp = sp.into();
-        cpu.memory.ram[(pc + 2) as usize] = 0x6E;
-        cpu.memory.ram[(pc + 1) as usize] = 0x0D;
-        cpu.memory.ram[(sp + 1) as usize] = 0x33;
-        cpu.memory.ram[(sp + 2) as usize] = 0xA9;
-        cpu.cz();
-
-        assert_eq!(cpu.pc, pc + 2);
-    }
-
-    #[test]
     fn test_call_subroutine() {
         let mut cpu = Cpu::new();
         let pc = get_random_number(0xFFFF);
@@ -1655,9 +1372,37 @@ mod tests {
         cpu.memory.ram[(pc + 1) as usize] = 0x0D;
         cpu.memory.ram[(sp + 1) as usize] = 0x33;
         cpu.memory.ram[(sp + 2) as usize] = 0xA9;
-        cpu.call_subroutine();
+        cpu.call_subroutine(true);
 
         assert_eq!(cpu.pc, 0x6E0D);
+        assert_eq!(cpu.sp, sp - 2);
+    }
+
+    #[test]
+    fn test_return_from_subroutine() {
+        let mut cpu = Cpu::new();
+        let pc = get_random_number(0xFFFF);
+        let sp = get_random_number(0xFFFF);
+        cpu.pc = pc.into();
+        cpu.sp = sp.into();
+        let msb: u16 = cpu.memory.ram[(sp - 1) as usize].into();
+        let lsb: u16 = cpu.memory.ram[(sp - 2) as usize].into();
+        let result = (msb << 8) | lsb;
+        cpu.return_from_subroutine(true);
+
+        assert_eq!(cpu.pc, result);
+    }
+
+    #[test]
+    fn test_jmp() {
+        let mut cpu = Cpu::new();
+        let pc: u8 = get_random_number(0xFFF0) as u8;
+        cpu.pc = pc.into();
+        cpu.memory.ram[(pc + 1) as usize] = 0x00;
+        cpu.memory.ram[(pc + 2) as usize] = 0x3E;
+        cpu.jump_operation(true);
+
+        assert_eq!(u16::from(cpu.pc), 0x3E00);
     }
 
     #[test]
@@ -1741,21 +1486,6 @@ mod tests {
         cpu.rst_operation(0xDF);
 
         assert_eq!(cpu.pc, 0x18);
-    }
-
-    #[test]
-    fn test_return_from_subroutine() {
-        let mut cpu = Cpu::new();
-        let pc = get_random_number(0xFFFF);
-        let sp = get_random_number(0xFFFF);
-        cpu.pc = pc.into();
-        cpu.sp = sp.into();
-        let msb: u16 = cpu.memory.ram[(sp - 1) as usize].into();
-        let lsb: u16 = cpu.memory.ram[(sp - 2) as usize].into();
-        let result = (msb << 8) | lsb;
-        cpu.return_from_subroutine(true);
-
-        assert_eq!(cpu.pc, result);
     }
 
     #[test]
