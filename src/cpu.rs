@@ -106,19 +106,11 @@ impl Cpu {
             0xDE => self.sbi(),
             0xE0 => self.rpo(),
             0xE2 => self.jpo(),
+            0xE3 => self.xthl(),
             0xEB => self.rpe(),
             0xF0 => self.rp(),
             0xF2 => self.jp(),
             0xF4 => self.cp(),
-            // // 0xE2 => {
-            // //     debug!(
-            // //         "{:x} JPO   {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
             // // 0xE3 => debug!("{:x} XTHL", self.registers.pc),
             // // 0xE4 => {
             // //     debug!(
@@ -834,6 +826,17 @@ impl Cpu {
             }
             _ => panic!("Bug in opcode router"),
         }
+    }
+
+    fn xthl(&mut self) {
+        let l_val: u8 = self.l.into();
+        let h_val: u8 = self.h.into();
+        let sp_1: u8 = self.memory.ram[usize::from(self.sp)];
+        let sp_2: u8 = self.memory.ram[usize::from(self.sp + 1)];
+        self.l = sp_1.into();
+        self.h = sp_2.into();
+        self.memory.ram[usize::from(self.sp)] = l_val.into();
+        self.memory.ram[usize::from(self.sp + 1)] = h_val.into();
     }
 
     fn ldax_operation(&mut self, code: u8) {
@@ -1782,6 +1785,22 @@ mod tests {
         cpu.return_from_subroutine();
 
         assert_eq!(cpu.pc, result);
+    }
+
+    #[test]
+    fn test_xthl() {
+        let mut cpu = Cpu::new();
+        cpu.sp = 0x10ADu16.into();
+        cpu.h = 0x0Bu8.into();
+        cpu.l = 0x3Cu8.into();
+        cpu.memory.ram[0x10AD] = 0xF0;
+        cpu.memory.ram[0x10AE] = 0x0D;
+        cpu.xthl();
+
+        assert_eq!(cpu.h, 0x0D);
+        assert_eq!(cpu.l, 0xF0);
+        assert_eq!(cpu.memory.ram[0x10AD], 0x3C);
+        assert_eq!(cpu.memory.ram[0x10AE], 0x0B);
     }
 
     fn get_random_number(max: u16) -> u16 {

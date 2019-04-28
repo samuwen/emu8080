@@ -76,6 +76,8 @@ fn opcode_name(val: u8) -> String {
         0xDB => "IN",
         0xDC => "CC",
         0xE0 => "RPO",
+        0xE2 => "JPO",
+        0xE3 => "XTHL",
         _ => panic!("How is babby formed"),
     })
 }
