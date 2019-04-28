@@ -107,44 +107,16 @@ impl Cpu {
             0xE0 => self.rpo(),
             0xE2 => self.jpo(),
             0xE3 => self.xthl(),
-            0xEB => self.rpe(),
+            0xE4 => self.cpo(),
+            0xE6 => self.ani(),
+            0xE8 => self.rpe(),
+            0xE9 => self.pchl(),
+            0xEA => self.jpe(),
+            0xEB => self.xchg(),
+            0xEC => self.cpe(),
             0xF0 => self.rp(),
             0xF2 => self.jp(),
             0xF4 => self.cp(),
-            // // 0xE3 => debug!("{:x} XTHL", self.registers.pc),
-            // // 0xE4 => {
-            // //     debug!(
-            // //         "{:x} CPO   {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
-            // // 0xE6 => {
-            // //     debug!("{:x} ANI  D8, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
-            // // 0xE9 => debug!("{:x} PCHL", self.registers.pc),
-            // // 0xEA => {
-            // //     debug!(
-            // //         "{:x} JPE   {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
-            // // 0xEB => debug!("{:x} XCHG", self.registers.pc),
-            // // 0xEC => {
-            // //     debug!(
-            // //         "{:x} CPE   {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
             // // 0xEE => {
             // //     debug!("{:x} XRE   D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
@@ -302,6 +274,10 @@ impl Cpu {
 
     fn ana_operation(&mut self, code: u8) {
         self.logical_operation(self.get_reg_value(code), &logical_and);
+    }
+
+    fn ani(&mut self) {
+        self.logical_operation(self.get_next_byte(), &logical_and);
     }
 
     fn xra_operation(&mut self, code: u8) {
@@ -644,6 +620,11 @@ impl Cpu {
         self.jump_operation(self.flags.p);
     }
 
+    fn pchl(&mut self) {
+        let value = self.get_reg_pair_value(self.h, self.l);
+        self.pc = value.into();
+    }
+
     // Call operations
 
     fn call_subroutine(&mut self) {
@@ -652,52 +633,40 @@ impl Cpu {
         self.pc = mem_ref.into();
     }
 
-    fn cnz(&mut self) {
-        if !self.flags.z {
+    fn call_operation(&mut self, true_condition: bool) {
+        if true_condition {
             self.call_subroutine()
         } else {
             self.pc += 2
         }
+    }
+
+    fn cnz(&mut self) {
+        self.call_operation(!self.flags.z);
     }
 
     fn cnc(&mut self) {
-        if !self.flags.z {
-            self.call_subroutine()
-        } else {
-            self.pc += 2
-        }
+        self.call_operation(!self.flags.cy);
     }
 
-    fn cnp(&mut self) {
-        if !self.flags.p {
-            self.call_subroutine()
-        } else {
-            self.pc += 2
-        }
+    fn cpo(&mut self) {
+        self.call_operation(!self.flags.p);
+    }
+
+    fn cpe(&mut self) {
+        self.call_operation(self.flags.p);
     }
 
     fn cz(&mut self) {
-        if self.flags.z {
-            self.call_subroutine()
-        } else {
-            self.pc += 2
-        }
+        self.call_operation(self.flags.z);
     }
 
     fn cc(&mut self) {
-        if self.flags.cy {
-            self.call_subroutine()
-        } else {
-            self.pc += 2
-        }
+        self.call_operation(self.flags.cy);
     }
 
     fn cp(&mut self) {
-        if self.flags.p {
-            self.call_subroutine()
-        } else {
-            self.pc += 2
-        }
+        self.call_operation(!self.flags.s);
     }
 
     // Return operations
@@ -837,6 +806,17 @@ impl Cpu {
         self.h = sp_2.into();
         self.memory.ram[usize::from(self.sp)] = l_val.into();
         self.memory.ram[usize::from(self.sp + 1)] = h_val.into();
+    }
+
+    fn xchg(&mut self) {
+        let h_val: u8 = self.h.into();
+        let l_val: u8 = self.l.into();
+        let d_val: u8 = self.d.into();
+        let e_val: u8 = self.e.into();
+        self.l = e_val.into();
+        self.h = d_val.into();
+        self.d = h_val.into();
+        self.e = l_val.into();
     }
 
     fn ldax_operation(&mut self, code: u8) {
@@ -1801,6 +1781,31 @@ mod tests {
         assert_eq!(cpu.l, 0xF0);
         assert_eq!(cpu.memory.ram[0x10AD], 0x3C);
         assert_eq!(cpu.memory.ram[0x10AE], 0x0B);
+    }
+
+    #[test]
+    fn test_xchg() {
+        let mut cpu = Cpu::new();
+        cpu.h = 0x00u8.into();
+        cpu.l = 0xFFu8.into();
+        cpu.d = 0x33u8.into();
+        cpu.e = 0x55u8.into();
+        cpu.xchg();
+
+        assert_eq!(cpu.h, 0x33);
+        assert_eq!(cpu.l, 0x55);
+        assert_eq!(cpu.d, 0x00);
+        assert_eq!(cpu.e, 0xFF);
+    }
+
+    #[test]
+    fn test_pchl() {
+        let mut cpu = Cpu::new();
+        cpu.l = 0x3Eu8.into();
+        cpu.h = 0x41u8.into();
+        cpu.pchl();
+
+        assert_eq!(cpu.pc, 0x413E);
     }
 
     fn get_random_number(max: u16) -> u16 {
