@@ -123,21 +123,9 @@ impl Cpu {
             0xF8 => self.rm(),
             0xF9 => self.sphl(),
             0xFA => self.jm(),
-            // // 0xFB => debug!("{:x} EI", self.registers.pc),
-            // // 0xFC => {
-            // //     debug!(
-            // //         "{:x} CM    {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
-            // // 0xFE => {
-            // //     debug!("{:x} CPI  D8,  {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
-            _ => panic!("Invalid opcode"),
+            0xFB => self.enable_interrupts(),
+            0xFC => self.cm(),
+            0xFE => self.cpi(),
         }
         self.pc += 1;
     }
@@ -247,10 +235,17 @@ impl Cpu {
         self.pc += 1;
     }
 
-    fn cmp_operation(&mut self, code: u8) {
-        let operand = self.get_reg_value(code);
+    fn compare(&mut self, operand: u8) {
         self.update_register(self.a, !operand + 1, &wrapping_add_u8);
         self.set_carry_flag_addition(&self.a.into(), &operand);
+    }
+
+    fn cmp_operation(&mut self, code: u8) {
+        self.compare(self.get_reg_value(code));
+    }
+
+    fn cpi(&mut self) {
+        self.compare(self.get_next_byte());
     }
 
     fn logical_operation(&mut self, val: u8, f: &Fn(u8, u8) -> u8) {
@@ -590,10 +585,6 @@ impl Cpu {
         self.jump_operation(!self.flags.cy);
     }
 
-    fn jnp(&mut self) {
-        self.jump_operation(!self.flags.p);
-    }
-
     fn jz(&mut self) {
         self.jump_operation(self.flags.z);
     }
@@ -661,6 +652,10 @@ impl Cpu {
 
     fn cc(&mut self) {
         self.call_operation(self.flags.cy);
+    }
+
+    fn cm(&mut self) {
+        self.call_operation(self.flags.s);
     }
 
     fn cp(&mut self) {
@@ -849,6 +844,10 @@ impl Cpu {
     }
 
     fn disable_interrupts(&mut self) {
+        // idk how to do this
+    }
+
+    fn enable_interrupts(&mut self) {
         // idk how to do this
     }
 

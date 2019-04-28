@@ -94,6 +94,9 @@ fn opcode_name(val: u8) -> String {
         0xF8 => "RM",
         0xF9 => "SHPL",
         0xFA => "JM",
+        0xFB => "EI",
+        0xFC => "CM",
+        0xFE => "CPI",
         _ => panic!("How is babby formed"),
     })
 }
