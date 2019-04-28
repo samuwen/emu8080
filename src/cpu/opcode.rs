@@ -85,6 +85,15 @@ fn opcode_name(val: u8) -> String {
         0xEA => "JPE",
         0xEB => "XCHG",
         0xEC => "CPE",
+        0xEE => "XRI",
+        0xF0 => "RP",
+        0xF2 => "JP",
+        0xF3 => "DI",
+        0xF4 => "CP",
+        0xF6 => "ORI",
+        0xF8 => "RM",
+        0xF9 => "SHPL",
+        0xFA => "JM",
         _ => panic!("How is babby formed"),
     })
 }

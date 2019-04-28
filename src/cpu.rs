@@ -89,7 +89,7 @@ impl Cpu {
             0xC6 => self.adi(),
             0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => self.rst_operation(op.code),
             0xC8 => self.rz(),
-            0xC9 => self.return_from_subroutine(),
+            0xC9 => self.return_from_subroutine(true),
             0xCA => self.jz(),
             0xCC => self.cz(),
             0xCD => self.call_subroutine(),
@@ -114,29 +114,15 @@ impl Cpu {
             0xEA => self.jpe(),
             0xEB => self.xchg(),
             0xEC => self.cpe(),
+            0xEE => self.xri(),
             0xF0 => self.rp(),
             0xF2 => self.jp(),
+            0xF3 => self.disable_interrupts(),
             0xF4 => self.cp(),
-            // // 0xEE => {
-            // //     debug!("{:x} XRE   D8, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
-            // // 0xF3 => debug!("{:x} DI", self.registers.pc),
-            // // 0xF6 => {
-            // //     debug!("{:x} ORI  D8, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
-            // // 0xF8 => debug!("{:x} RM", self.registers.pc),
-            // // 0xF9 => debug!("{:x} SPHL", self.registers.pc),
-            // // 0xFA => {
-            // //     debug!(
-            // //         "{:x} JM    {:x}  {:x}",
-            // //         self.registers.pc,
-            // //         self.extra_byte(2),
-            // //         self.extra_byte(1)
-            // //     );
-            // //     self.registers.pc += 2
-            // // }
+            0xF6 => self.ori(),
+            0xF8 => self.rm(),
+            0xF9 => self.sphl(),
+            0xFA => self.jm(),
             // // 0xFB => debug!("{:x} EI", self.registers.pc),
             // // 0xFC => {
             // //     debug!(
@@ -284,8 +270,16 @@ impl Cpu {
         self.logical_operation(self.get_reg_value(code), &logical_xor);
     }
 
+    fn xri(&mut self) {
+        self.logical_operation(self.get_next_byte(), &logical_xor);
+    }
+
     fn ora_operation(&mut self, code: u8) {
         self.logical_operation(self.get_reg_value(code), &logical_or);
+    }
+
+    fn ori(&mut self) {
+        self.logical_operation(self.get_next_byte(), &logical_or);
     }
 
     fn lxi_operation(&mut self, code: u8) {
@@ -612,6 +606,10 @@ impl Cpu {
         self.jump_operation(!self.flags.s);
     }
 
+    fn jm(&mut self) {
+        self.jump_operation(self.flags.s);
+    }
+
     fn jpo(&mut self) {
         self.jump_operation(!self.flags.p);
     }
@@ -671,57 +669,43 @@ impl Cpu {
 
     // Return operations
 
-    fn return_from_subroutine(&mut self) {
-        let (msb, lsb) = self.pop_off_stack();
-        self.pc = self.get_pair_value(msb, lsb).into();
-    }
-
-    fn rnz(&mut self) {
-        if !self.flags.z {
-            self.return_from_subroutine();
-        }
-    }
-
-    fn rnc(&mut self) {
-        if !self.flags.cy {
-            self.return_from_subroutine();
-        }
-    }
-
-    fn rnp(&mut self) {
-        if !self.flags.p {
-            self.return_from_subroutine();
-        }
-    }
-
-    fn rz(&mut self) {
-        if self.flags.z {
-            self.return_from_subroutine();
+    fn return_from_subroutine(&mut self, true_condition: bool) {
+        if true_condition {
+            let (msb, lsb) = self.pop_off_stack();
+            self.pc = self.get_pair_value(msb, lsb).into();
         }
     }
 
     fn rc(&mut self) {
-        if self.flags.cy {
-            self.return_from_subroutine();
-        }
+        self.return_from_subroutine(self.flags.cy);
+    }
+
+    fn rnc(&mut self) {
+        self.return_from_subroutine(!self.flags.cy);
+    }
+
+    fn rz(&mut self) {
+        self.return_from_subroutine(self.flags.z);
+    }
+
+    fn rnz(&mut self) {
+        self.return_from_subroutine(!self.flags.z);
+    }
+
+    fn rm(&mut self) {
+        self.return_from_subroutine(self.flags.s);
     }
 
     fn rp(&mut self) {
-        if !self.flags.s {
-            self.return_from_subroutine();
-        }
-    }
-
-    fn rpo(&mut self) {
-        if !self.flags.p {
-            self.return_from_subroutine();
-        }
+        self.return_from_subroutine(!self.flags.s);
     }
 
     fn rpe(&mut self) {
-        if self.flags.p {
-            self.return_from_subroutine();
-        }
+        self.return_from_subroutine(self.flags.p);
+    }
+
+    fn rpo(&mut self) {
+        self.return_from_subroutine(!self.flags.p);
     }
 
     fn rst_operation(&mut self, code: u8) {
@@ -819,6 +803,10 @@ impl Cpu {
         self.e = l_val.into();
     }
 
+    fn sphl(&mut self) {
+        self.sp = self.get_reg_pair_value(self.h, self.l).into()
+    }
+
     fn ldax_operation(&mut self, code: u8) {
         match code {
             0x0A => {
@@ -858,6 +846,10 @@ impl Cpu {
             }
             _ => panic!("Bug in opcode router"),
         }
+    }
+
+    fn disable_interrupts(&mut self) {
+        // idk how to do this
     }
 
     fn update_register(&mut self, reg: Register, op: u8, f: &Fn(u8, u8) -> u8) -> Register {
@@ -1762,7 +1754,7 @@ mod tests {
         let msb: u16 = cpu.memory.ram[(sp - 1) as usize].into();
         let lsb: u16 = cpu.memory.ram[(sp - 2) as usize].into();
         let result = (msb << 8) | lsb;
-        cpu.return_from_subroutine();
+        cpu.return_from_subroutine(true);
 
         assert_eq!(cpu.pc, result);
     }
@@ -1806,6 +1798,16 @@ mod tests {
         cpu.pchl();
 
         assert_eq!(cpu.pc, 0x413E);
+    }
+
+    #[test]
+    fn test_sphl() {
+        let mut cpu = Cpu::new();
+        cpu.h = 0x50u8.into();
+        cpu.l = 0x6Cu8.into();
+        cpu.sphl();
+
+        assert_eq!(cpu.sp, 0x506C);
     }
 
     fn get_random_number(max: u16) -> u16 {
