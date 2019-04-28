@@ -96,16 +96,14 @@ impl Cpu {
             0xCE => self.aci(),
             0xD0 => self.rnc(),
             0xD2 => self.jnc(),
+            0xD3 => unimplemented!(), // Contents of cpu.a are sent to io device.
             0xD4 => self.cnc(),
+            0xD6 => self.sui(),
             0xD8 => self.rc(),
             0xDC => self.cc(),
             0xF0 => self.rp(),
             0xF2 => self.jp(),
             0xF4 => self.cp(),
-            // // 0xD3 => {
-            // //     debug!("{:x} OUT  D8, {:x}", self.registers.pc, self.extra_byte(1));
-            // //     self.registers.pc += 1
-            // // }
             // // 0xD6 => {
             // //     debug!("{:x} SUI  D8, {:x}", self.registers.pc, self.extra_byte(1));
             // //     self.registers.pc += 1
@@ -212,18 +210,44 @@ impl Cpu {
     }
 
     #[inline]
-    fn set_flags(&mut self, result: &u8, reg_value: u8, op: u8, overflow: bool) {
-        let aux_vals: (bool, bool) = self.get_b3_vals(&reg_value, &op);
+    fn set_flags(&mut self, result: &u8, reg_value: u8, op: u8) {
         self.flags.p = self.sets_parity_flag(&result);
         self.flags.z = self.sets_zero_flag(&result);
         self.flags.s = self.sets_sign_flag(&result);
-        self.flags.ac = self.sets_aux_carry_flag(aux_vals.0, aux_vals.1, &result);
-        self.flags.cy = if self.flags.cy { !overflow } else { overflow };
+        self.set_ac_flag(&reg_value, &op);
+    }
+
+    #[inline]
+    fn set_carry_flag_addition(&mut self, op1: &u8, op2: &u8) {
+        self.flags.cy = (0xFF - op1) <= *op2
+    }
+
+    #[inline]
+    fn set_ac_flag(&mut self, op1: &u8, op2: &u8) {
+        let v1 = op1 & 0xF;
+        let v2 = op2 & 0xF;
+        self.flags.ac = (0x10 - v1) <= v2
+    }
+
+    // #[inline]
+    // fn set_carry_flag_subtraction(&mut self, op1: &u8, op2: &u8) {
+    //     self.flags.cy = (255 - op1) > *op2
+    // }
+
+    fn is_b7_set(val: u8) -> bool {
+        (val & 0x80) >> 7 == 1
     }
 
     #[inline]
     fn sets_parity_flag(&mut self, val: &u8) -> bool {
-        val % 2 == 0
+        let mut count = 0;
+        let temp_val = *val;
+        for i in 0..8 {
+            if (temp_val >> i) & 0x1 == 1 {
+                count += 1;
+            }
+        }
+        count % 2 == 0
     }
 
     #[inline]
@@ -236,95 +260,74 @@ impl Cpu {
         (*val & 0x80) == 0x80
     }
 
-    #[inline]
-    fn sets_aux_carry_flag(&mut self, v1_b3_set: bool, v2_b3_set: bool, val: &u8) -> bool {
-        if !v1_b3_set && !v2_b3_set {
-            return false;
-        }
-        (*val & 0x8) == 0x0
+    fn addition(&mut self, val: u8) {
+        self.a = self.update_register(self.a, val, &wrapping_add_u8);
+        self.set_carry_flag_addition(&self.a.into(), &val);
     }
 
-    #[inline]
-    fn get_b3_vals(mut self, register: &u8, op: &u8) -> (bool, bool) {
-        let b3_1 = self.is_b3_set(&op);
-        let b3_2 = self.is_b3_set(&register);
-        (b3_1, b3_2)
-    }
-
-    #[inline]
-    fn is_b3_set(&mut self, val: &u8) -> bool {
-        (*val & 0x8) == 0x8
+    fn subtraction(&mut self, val: u8) {
+        self.a = self.update_register(self.a, !val + 1, &wrapping_add_u8);
+        self.set_carry_flag_addition(&val, &self.a.into());
     }
 
     fn adc_operation(&mut self, code: u8) {
-        let carry_value = if self.flags.cy { 1 } else { 0 };
-        self.a = self.update_register_with_overflow(
-            self.a,
-            self.get_reg_value(code) + carry_value,
-            &overflowing_add_u8,
-        );
+        let operand = self.get_reg_value(code) + self.flags.cy as u8;
+        self.addition(operand);
     }
 
     fn add_operation(&mut self, code: u8) {
-        self.a = self.update_register_with_overflow(
-            self.a,
-            self.get_reg_value(code),
-            &overflowing_add_u8,
-        );
+        self.addition(self.get_reg_value(code));
     }
 
     fn adi(&mut self) {
-        let a: u8 = self.a.into();
-        let next_byte = self.get_next_byte();
-        let (result, overflow) = a.overflowing_add(next_byte);
-        self.set_flags(&result, a, next_byte, overflow);
-        self.a = result.into();
+        self.addition(self.get_next_byte());
         self.pc += 1;
     }
 
     fn aci(&mut self) {
-        let a: u8 = self.a.into();
-        let next_byte = self.get_next_byte() + self.flags.cy as u8;
-        let (result, overflow) = a.overflowing_add(next_byte);
-        self.set_flags(&result, a, next_byte, overflow);
-        self.a = result.into();
+        let operand = self.get_next_byte() + self.flags.cy as u8;
+        self.addition(operand);
         self.pc += 1;
     }
 
     fn sbb_operation(&mut self, code: u8) {
-        let carry_value = if self.flags.cy { 1 } else { 0 };
-        self.a = self.update_register_with_overflow(
-            self.a,
-            !(self.get_reg_value(code) + carry_value) + 1,
-            &overflowing_add_u8,
-        );
+        let operand = self.get_reg_value(code) + self.flags.cy as u8;
+        self.subtraction(operand);
     }
 
     fn sub_operation(&mut self, code: u8) {
-        self.a = self.update_register_with_overflow(
-            self.a,
-            !self.get_reg_value(code) + 1,
-            &overflowing_add_u8,
-        );
+        self.subtraction(self.get_reg_value(code));
     }
 
-    fn ana_operation(&mut self, code: u8) {
-        self.a = self.update_register_no_overflow(self.a, self.get_reg_value(code), &logical_and);
-    }
-
-    fn xra_operation(&mut self, code: u8) {
-        self.a = self.update_register_no_overflow(self.a, self.get_reg_value(code), &logical_xor);
-    }
-
-    fn ora_operation(&mut self, code: u8) {
-        self.a = self.update_register_no_overflow(self.a, self.get_reg_value(code), &logical_or);
+    fn sui(&mut self) {
+        self.subtraction(self.get_next_byte());
+        self.pc += 1;
     }
 
     fn cmp_operation(&mut self, code: u8) {
-        let reg_value = !self.get_reg_value(code) + 1;
-        let acc_value: u8 = self.a.into();
-        let (result, overflow) = acc_value.overflowing_add(reg_value);
-        self.set_flags(&result, reg_value, acc_value, !overflow);
+        let operand = self.get_reg_value(code);
+        self.update_register(self.a, !operand + 1, &wrapping_add_u8);
+        self.set_carry_flag_addition(&self.a.into(), &operand);
+    }
+
+    fn logical_operation(&mut self, val: u8, f: &Fn(u8, u8) -> u8) {
+        self.a = self.update_register(self.a, val, f);
+        self.flags.cy = false;
+    }
+
+    fn ana_operation(&mut self, code: u8) {
+        self.logical_operation(self.get_reg_value(code), &logical_and);
+        // self.a = self.update_register(self.a, self.get_reg_value(code), &logical_and);
+    }
+
+    fn xra_operation(&mut self, code: u8) {
+        self.logical_operation(self.get_reg_value(code), &logical_xor);
+        // self.a = self.update_register(self.a, self.get_reg_value(code), &logical_xor);
+    }
+
+    fn ora_operation(&mut self, code: u8) {
+        self.logical_operation(self.get_reg_value(code), &logical_or);
+        // self.a = self.update_register(self.a, self.get_reg_value(code), &logical_or);
     }
 
     fn lxi_operation(&mut self, code: u8) {
@@ -364,17 +367,17 @@ impl Cpu {
     fn inx_operation(&mut self, code: u8) {
         match code {
             0x03 => {
-                let (x, y) = self.update_register_pair(self.b, self.c, 1, &wrapping_add);
+                let (x, y) = self.update_register_pair(self.b, self.c, 1, &wrapping_add_u16);
                 self.b = x;
                 self.c = y;
             }
             0x13 => {
-                let (x, y) = self.update_register_pair(self.d, self.e, 1, &wrapping_add);
+                let (x, y) = self.update_register_pair(self.d, self.e, 1, &wrapping_add_u16);
                 self.d = x;
                 self.e = y;
             }
             0x23 => {
-                let (x, y) = self.update_register_pair(self.h, self.l, 1, &wrapping_add);
+                let (x, y) = self.update_register_pair(self.h, self.l, 1, &wrapping_add_u16);
                 self.h = x;
                 self.l = y;
             }
@@ -389,41 +392,43 @@ impl Cpu {
 
     fn inr_operation(&mut self, code: u8) {
         match code {
-            0x04 => self.b = self.update_register_with_overflow(self.b, 1, &overflowing_add_u8),
-            0x0C => self.c = self.update_register_with_overflow(self.c, 1, &overflowing_add_u8),
-            0x14 => self.d = self.update_register_with_overflow(self.d, 1, &overflowing_add_u8),
-            0x1C => self.e = self.update_register_with_overflow(self.e, 1, &overflowing_add_u8),
-            0x24 => self.h = self.update_register_with_overflow(self.h, 1, &overflowing_add_u8),
-            0x2C => self.l = self.update_register_with_overflow(self.l, 1, &overflowing_add_u8),
+            0x04 => self.b = self.update_register(self.b, 1, &wrapping_add_u8),
+            0x0C => self.c = self.update_register(self.c, 1, &wrapping_add_u8),
+            0x14 => self.d = self.update_register(self.d, 1, &wrapping_add_u8),
+            0x1C => self.e = self.update_register(self.e, 1, &wrapping_add_u8),
+            0x24 => self.h = self.update_register(self.h, 1, &wrapping_add_u8),
+            0x2C => self.l = self.update_register(self.l, 1, &wrapping_add_u8),
             0x34 => {
                 let mem_ref = self.get_reg_pair_value(self.l, self.h);
                 let value = self.memory.ram[mem_ref as usize];
-                let (result, overflow) = value.overflowing_add(1);
-                self.set_flags(&result, value, 1, overflow);
+                let result = value.wrapping_add(1);
+                self.set_flags(&result, value, 1);
+                self.set_carry_flag_addition(&value, &1);
                 self.l = (result & 0xFF).into();
                 self.h = (result & 0x00FF).into();
             }
-            0x3C => self.a = self.update_register_with_overflow(self.a, 1, &overflowing_add_u8),
+            0x3C => self.a = self.update_register(self.a, 1, &wrapping_add_u8),
             _ => panic!("Bug exists in opcode routing"),
         }
     }
 
     fn dcr_operation(&mut self, code: u8) {
         match code {
-            0x05 => self.b = self.update_register_with_overflow(self.b, 1, &overflowing_sub_u8),
-            0x0D => self.c = self.update_register_with_overflow(self.c, 1, &overflowing_sub_u8),
-            0x15 => self.d = self.update_register_with_overflow(self.d, 1, &overflowing_sub_u8),
-            0x1D => self.e = self.update_register_with_overflow(self.e, 1, &overflowing_sub_u8),
-            0x25 => self.h = self.update_register_with_overflow(self.h, 1, &overflowing_sub_u8),
-            0x2D => self.l = self.update_register_with_overflow(self.l, 1, &overflowing_sub_u8),
+            0x05 => self.b = self.update_register(self.b, 1, &wrapping_sub_u8),
+            0x0D => self.c = self.update_register(self.c, 1, &wrapping_sub_u8),
+            0x15 => self.d = self.update_register(self.d, 1, &wrapping_sub_u8),
+            0x1D => self.e = self.update_register(self.e, 1, &wrapping_sub_u8),
+            0x25 => self.h = self.update_register(self.h, 1, &wrapping_sub_u8),
+            0x2D => self.l = self.update_register(self.l, 1, &wrapping_sub_u8),
             0x35 => {
                 let mem_ref = self.get_reg_pair_value(self.h, self.l);
                 let value = self.memory.ram[mem_ref as usize];
-                let (result, overflow) = value.overflowing_sub(1);
-                self.set_flags(&result, value, 1, !overflow);
+                let result = value.wrapping_sub(1);
+                self.set_flags(&result, value, 1);
+                self.set_carry_flag_addition(&value, &1);
                 self.memory.ram[mem_ref as usize] = result;
             }
-            0x3D => self.a = self.update_register_with_overflow(self.a, 1, &overflowing_sub_u8),
+            0x3D => self.a = self.update_register(self.a, 1, &wrapping_sub_u8),
             _ => panic!("Bug exists in opcode routing"),
         }
     }
@@ -809,23 +814,13 @@ impl Cpu {
         match code {
             0x09 => {
                 let hl_reg = self.get_reg_pair_value(self.h, self.l);
-                let (x, y) = self.update_register_pair_overflow(
-                    self.b,
-                    self.c,
-                    hl_reg,
-                    &overflowing_add_u16,
-                );
+                let (x, y) = self.update_register_pair(self.b, self.c, hl_reg, &wrapping_add_u16);
                 self.h = x;
                 self.l = y;
             }
             0x19 => {
                 let hl_reg = self.get_reg_pair_value(self.h, self.l);
-                let (x, y) = self.update_register_pair_overflow(
-                    self.d,
-                    self.e,
-                    hl_reg,
-                    &overflowing_add_u16,
-                );
+                let (x, y) = self.update_register_pair(self.d, self.e, hl_reg, &wrapping_add_u16);
                 self.h = x;
                 self.l = y;
             }
@@ -842,7 +837,7 @@ impl Cpu {
             0x39 => {
                 let hl_reg = self.get_reg_pair_value(self.h, self.l);
                 let (a, b) = Cpu::return_split_registers(self.sp.into());
-                let (x, y) = self.update_register_pair_overflow(a, b, hl_reg, &overflowing_add_u16);
+                let (x, y) = self.update_register_pair(a, b, hl_reg, &wrapping_add_u16);
                 self.h = x;
                 self.l = y;
             }
@@ -867,23 +862,23 @@ impl Cpu {
     fn dcx_operation(&mut self, code: u8) {
         match code {
             0x0B => {
-                let (x, y) = self.update_register_pair(self.b, self.c, 1, &wrapping_sub);
+                let (x, y) = self.update_register_pair(self.b, self.c, 1, &wrapping_sub_u16);
                 self.b = x.into();
                 self.c = y.into();
             }
             0x1B => {
-                let (x, y) = self.update_register_pair(self.d, self.e, 1, &wrapping_sub);
+                let (x, y) = self.update_register_pair(self.d, self.e, 1, &wrapping_sub_u16);
                 self.b = x.into();
                 self.c = y.into();
             }
             0x2B => {
-                let (x, y) = self.update_register_pair(self.h, self.l, 1, &wrapping_sub);
+                let (x, y) = self.update_register_pair(self.h, self.l, 1, &wrapping_sub_u16);
                 self.b = x.into();
                 self.c = y.into();
             }
             0x3B => {
                 let (a, b) = Cpu::return_split_registers(self.sp.into());
-                let (x, y) = self.update_register_pair(a, b, 1, &wrapping_sub);
+                let (x, y) = self.update_register_pair(a, b, 1, &wrapping_sub_u16);
                 self.b = x.into();
                 self.c = y.into();
             }
@@ -891,27 +886,10 @@ impl Cpu {
         }
     }
 
-    fn update_register_with_overflow(
-        &mut self,
-        reg: Register,
-        op: u8,
-        f: &Fn(u8, u8) -> (u8, bool),
-    ) -> Register {
-        let val: u8 = reg.into();
-        let (result, overflow) = f(val, op);
-        self.set_flags(&result, reg.into(), op, overflow);
-        result.into()
-    }
-
-    fn update_register_no_overflow(
-        &mut self,
-        reg: Register,
-        op: u8,
-        f: &Fn(u8, u8) -> u8,
-    ) -> Register {
+    fn update_register(&mut self, reg: Register, op: u8, f: &Fn(u8, u8) -> u8) -> Register {
         let val: u8 = reg.into();
         let result = f(val, op);
-        self.set_flags(&result, reg.into(), op, false);
+        self.set_flags(&result, reg.into(), op);
         result.into()
     }
 
@@ -924,19 +902,6 @@ impl Cpu {
     ) -> (Register, Register) {
         let concat_val = self.get_reg_pair_value(msb, lsb);
         let result = f(concat_val, op);
-        Cpu::return_split_registers(result)
-    }
-
-    fn update_register_pair_overflow(
-        &mut self,
-        msb: Register,
-        lsb: Register,
-        op: u16,
-        f: &Fn(u16, u16) -> (u16, bool),
-    ) -> (Register, Register) {
-        let reg_val = self.get_reg_pair_value(msb, lsb);
-        let (result, overflow) = f(op, reg_val);
-        self.flags.cy = if overflow { true } else { false };
         Cpu::return_split_registers(result)
     }
 
@@ -1003,19 +968,19 @@ impl Cpu {
     }
 }
 
-fn overflowing_add_u8(val: u8, operand: u8) -> (u8, bool) {
-    val.overflowing_add(operand)
-}
-
-fn overflowing_add_u16(val: u16, operand: u16) -> (u16, bool) {
-    val.overflowing_add(operand)
-}
-
-fn wrapping_add(val: u16, operand: u16) -> u16 {
+fn wrapping_add_u16(val: u16, operand: u16) -> u16 {
     val.wrapping_add(operand)
 }
 
-fn wrapping_sub(val: u16, operand: u16) -> u16 {
+fn wrapping_add_u8(val: u8, operand: u8) -> u8 {
+    val.wrapping_add(operand)
+}
+
+fn wrapping_sub_u16(val: u16, operand: u16) -> u16 {
+    val.wrapping_sub(operand)
+}
+
+fn wrapping_sub_u8(val: u8, operand: u8) -> u8 {
     val.wrapping_sub(operand)
 }
 
@@ -1071,112 +1036,6 @@ mod tests {
 
         assert_eq!(cpu.memory.ram[addr1], val1);
         assert_eq!(cpu.memory.ram[addr2], val2);
-    }
-
-    #[test]
-    fn test_sets_parity_flag_if_even() {
-        let mut cpu = Cpu::new();
-        let result = cpu.sets_parity_flag(&28);
-
-        assert_eq!(result, true);
-    }
-
-    #[test]
-    fn test_sets_parity_flag_if_odd() {
-        let mut cpu = Cpu::new();
-        let result = cpu.sets_parity_flag(&27);
-
-        assert_eq!(result, false);
-    }
-
-    #[test]
-    fn test_sets_zero_flag_if_zero() {
-        let mut cpu = Cpu::new();
-        let result = cpu.sets_zero_flag(&0);
-
-        assert_eq!(result, true);
-    }
-
-    #[test]
-    fn test_sets_zero_flag_if_non_zero() {
-        let mut cpu = Cpu::new();
-        let result = cpu.sets_zero_flag(&190);
-
-        assert_eq!(result, false);
-    }
-
-    #[test]
-    fn test_sets_sign_flag_if_last_bit_set() {
-        let mut cpu = Cpu::new();
-        let result = cpu.sets_sign_flag(&0x85);
-
-        assert_eq!(result, true);
-    }
-
-    #[test]
-    fn test_sets_sign_flag_if_last_bit_unset() {
-        let mut cpu = Cpu::new();
-        let result = cpu.sets_sign_flag(&0x14);
-
-        assert_eq!(result, false);
-    }
-
-    #[test]
-    fn test_sets_aux_carry_flag_if_carry_out_of_bit_3() {
-        let mut cpu = Cpu::new();
-        let v1 = 0x2E;
-        let v2 = 0x74;
-        let b3_1 = cpu.is_b3_set(&v1);
-        let b3_2 = cpu.is_b3_set(&v2);
-        let result = v1 + v2;
-        let result = cpu.sets_aux_carry_flag(b3_1, b3_2, &result);
-
-        assert_eq!(result, true);
-    }
-
-    #[test]
-    fn test_sets_aux_carry_flag_if_last_word_bit_unset() {
-        let mut cpu = Cpu::new();
-        let v1 = 0x1;
-        let v2 = 0x2;
-        let b3_1 = cpu.is_b3_set(&v1);
-        let b3_2 = cpu.is_b3_set(&v2);
-        let result = v1 + v2;
-        let result = cpu.sets_aux_carry_flag(b3_1, b3_2, &result);
-
-        assert_eq!(result, false);
-    }
-
-    #[test]
-    fn test_set_flags() {
-        let mut cpu = Cpu::new();
-        let v1: u8 = get_random_number(0xFF) as u8;
-        let v2: u8 = get_random_number(0xFF) as u8;
-        cpu.a = v1.into();
-        let (b1, b2) = cpu.get_b3_vals(&v2, &v1);
-        let (result, overflow) = v1.overflowing_add(v2);
-        cpu.set_flags(&result, v2, v1, overflow);
-        let p = if result % 2 == 0 { true } else { false };
-        let s = if (result & 0x80) >> 7 == 1 {
-            true
-        } else {
-            false
-        };
-        let z = if result == 0 { true } else { false };
-        let cy = overflow;
-        let ac = {
-            if !b1 && !b2 {
-                false
-            } else {
-                if &result & 0x8 == 0x8 {
-                    false
-                } else {
-                    true
-                }
-            }
-        };
-
-        test_flag_values(&cpu, p, s, z, cy, ac);
     }
 
     // opcode tests
@@ -1285,6 +1144,11 @@ mod tests {
         cpu.add_operation(0x80);
 
         assert_eq!(cpu.a, 0x9A);
+        assert_eq!(cpu.flags.cy, false);
+        assert_eq!(cpu.flags.z, false);
+        assert_eq!(cpu.flags.p, true);
+        assert_eq!(cpu.flags.s, true);
+        assert_eq!(cpu.flags.ac, true);
     }
 
     #[test]
@@ -1297,6 +1161,11 @@ mod tests {
         cpu.adc_operation(0x88);
 
         assert_eq!(cpu.a, 0x7F);
+        assert_eq!(cpu.flags.cy, false);
+        assert_eq!(cpu.flags.z, false);
+        assert_eq!(cpu.flags.p, false);
+        assert_eq!(cpu.flags.s, false);
+        assert_eq!(cpu.flags.ac, false);
     }
 
     #[test]
@@ -1310,6 +1179,11 @@ mod tests {
         cpu.adc_operation(0x88);
 
         assert_eq!(cpu.a, 0x80);
+        assert_eq!(cpu.flags.cy, false);
+        assert_eq!(cpu.flags.z, false);
+        assert_eq!(cpu.flags.p, false);
+        assert_eq!(cpu.flags.s, true);
+        assert_eq!(cpu.flags.ac, true);
     }
 
     #[test]
@@ -1356,6 +1230,22 @@ mod tests {
         assert_eq!(cpu.flags.z, false);
         assert_eq!(cpu.flags.p, false);
         assert_eq!(cpu.flags.ac, true);
+    }
+
+    #[test]
+    fn test_sui_operation() {
+        let mut cpu = Cpu::new();
+        let pc = get_random_number(0xFFFF);
+        cpu.pc = pc.into();
+        cpu.memory.ram[(pc + 1) as usize] = 0x1;
+        cpu.sui();
+
+        assert_eq!(cpu.a, 0xFF);
+        assert_eq!(cpu.flags.cy, true);
+        assert_eq!(cpu.flags.s, true);
+        assert_eq!(cpu.flags.p, true);
+        assert_eq!(cpu.flags.ac, false);
+        assert_eq!(cpu.flags.z, false);
     }
 
     #[test]
@@ -1591,12 +1481,12 @@ mod tests {
     }
 
     #[test]
-    fn test_rnz_z_set() {
+    fn test_rnz_z_unset() {
         let mut cpu = Cpu::new();
         let pc = get_random_number(0xFFFF);
         let sp = get_random_number(0xFFFF);
         cpu.pc = pc.into();
-        cpu.flags.z = true;
+        cpu.flags.z = false;
         cpu.sp = sp.into();
         let msb: u16 = cpu.memory.ram[(sp - 1) as usize].into();
         let lsb: u16 = cpu.memory.ram[(sp - 2) as usize].into();
@@ -1607,10 +1497,11 @@ mod tests {
     }
 
     #[test]
-    fn test_rnz_z_unset() {
+    fn test_rnz_z_set() {
         let mut cpu = Cpu::new();
         let pc = get_random_number(0xFFFF);
         let new_pc = get_random_number(0xFFFF);
+        cpu.flags.z = true;
         cpu.pc = pc.into();
         cpu.sp = new_pc.into();
         cpu.rnz();
@@ -1619,12 +1510,12 @@ mod tests {
     }
 
     #[test]
-    fn test_rz_z_unset() {
+    fn test_rz_z_set() {
         let mut cpu = Cpu::new();
         let pc = get_random_number(0xFFFF);
         let sp = get_random_number(0xFFFF);
         cpu.pc = pc.into();
-        cpu.flags.z = false;
+        cpu.flags.z = true;
         cpu.sp = sp.into();
         let msb: u16 = cpu.memory.ram[(sp - 1) as usize].into();
         let lsb: u16 = cpu.memory.ram[(sp - 2) as usize].into();
@@ -1635,11 +1526,11 @@ mod tests {
     }
 
     #[test]
-    fn test_rz_z_set() {
+    fn test_rz_z_unset() {
         let mut cpu = Cpu::new();
         let pc = get_random_number(0xFFFF);
         let new_pc = get_random_number(0xFFFF);
-        cpu.flags.z = true;
+        cpu.flags.z = false;
         cpu.pc = pc.into();
         cpu.sp = new_pc.into();
         cpu.rz();
@@ -1676,19 +1567,6 @@ mod tests {
     }
 
     #[test]
-    fn test_jnz_zero_set() {
-        let mut cpu = Cpu::new();
-        cpu.flags.z = true;
-        let pc = get_random_number(0xFFF0);
-        cpu.pc = pc.into();
-        cpu.memory.ram[(pc + 2) as usize] = 0xB9;
-        cpu.memory.ram[(pc + 1) as usize] = 0x66;
-        cpu.jnz();
-
-        assert_eq!(cpu.pc, 0xB966);
-    }
-
-    #[test]
     fn test_jnz_zero_unset() {
         let mut cpu = Cpu::new();
         cpu.flags.z = false;
@@ -1698,20 +1576,20 @@ mod tests {
         cpu.memory.ram[(pc + 1) as usize] = 0x66;
         cpu.jnz();
 
-        assert_eq!(cpu.pc, pc + 2);
+        assert_eq!(cpu.pc, 0xB966);
     }
 
     #[test]
-    fn test_jz_zero_unset() {
+    fn test_jnz_zero_set() {
         let mut cpu = Cpu::new();
-        cpu.flags.z = false;
+        cpu.flags.z = true;
         let pc = get_random_number(0xFFF0);
         cpu.pc = pc.into();
         cpu.memory.ram[(pc + 2) as usize] = 0xB9;
         cpu.memory.ram[(pc + 1) as usize] = 0x66;
-        cpu.jz();
+        cpu.jnz();
 
-        assert_eq!(cpu.pc, 0xB966);
+        assert_eq!(cpu.pc, pc + 2);
     }
 
     #[test]
@@ -1724,24 +1602,20 @@ mod tests {
         cpu.memory.ram[(pc + 1) as usize] = 0x66;
         cpu.jz();
 
-        assert_eq!(cpu.pc, pc + 2);
+        assert_eq!(cpu.pc, 0xB966);
     }
 
     #[test]
-    fn test_cnz_zero_set() {
+    fn test_jz_zero_unset() {
         let mut cpu = Cpu::new();
-        cpu.flags.z = true;
+        cpu.flags.z = false;
         let pc = get_random_number(0xFFF0);
         cpu.pc = pc.into();
-        let sp = get_random_number(0xFFF0);
-        cpu.sp = sp.into();
-        cpu.memory.ram[(pc + 2) as usize] = 0x6E;
-        cpu.memory.ram[(pc + 1) as usize] = 0x0D;
-        cpu.memory.ram[(sp + 1) as usize] = 0x33;
-        cpu.memory.ram[(sp + 2) as usize] = 0xA9;
-        cpu.cnz();
+        cpu.memory.ram[(pc + 2) as usize] = 0xB9;
+        cpu.memory.ram[(pc + 1) as usize] = 0x66;
+        cpu.jz();
 
-        assert_eq!(cpu.pc, 0x6E0D);
+        assert_eq!(cpu.pc, pc + 2);
     }
 
     #[test]
@@ -1758,13 +1632,30 @@ mod tests {
         cpu.memory.ram[(sp + 2) as usize] = 0xA9;
         cpu.cnz();
 
+        assert_eq!(cpu.pc, 0x6E0D);
+    }
+
+    #[test]
+    fn test_cnz_zero_set() {
+        let mut cpu = Cpu::new();
+        cpu.flags.z = true;
+        let pc = get_random_number(0xFFF0);
+        cpu.pc = pc.into();
+        let sp = get_random_number(0xFFF0);
+        cpu.sp = sp.into();
+        cpu.memory.ram[(pc + 2) as usize] = 0x6E;
+        cpu.memory.ram[(pc + 1) as usize] = 0x0D;
+        cpu.memory.ram[(sp + 1) as usize] = 0x33;
+        cpu.memory.ram[(sp + 2) as usize] = 0xA9;
+        cpu.cnz();
+
         assert_eq!(cpu.pc, pc + 2);
     }
 
     #[test]
-    fn test_cz_zero_unset() {
+    fn test_cz_zero_set() {
         let mut cpu = Cpu::new();
-        cpu.flags.z = false;
+        cpu.flags.z = true;
         let pc = get_random_number(0xFFF0);
         cpu.pc = pc.into();
         let sp = get_random_number(0xFFF0);
@@ -1779,9 +1670,9 @@ mod tests {
     }
 
     #[test]
-    fn test_cz_zero_set() {
+    fn test_cz_zero_unset() {
         let mut cpu = Cpu::new();
-        cpu.flags.z = true;
+        cpu.flags.z = false;
         let pc = get_random_number(0xFFF0);
         cpu.pc = pc.into();
         let sp = get_random_number(0xFFF0);
@@ -1907,14 +1798,6 @@ mod tests {
         cpu.return_from_subroutine();
 
         assert_eq!(cpu.pc, result);
-    }
-
-    fn test_flag_values(cpu: &Cpu, p: bool, s: bool, z: bool, cy: bool, ac: bool) {
-        assert_eq!(cpu.flags.p, p);
-        assert_eq!(cpu.flags.s, s);
-        assert_eq!(cpu.flags.z, z);
-        assert_eq!(cpu.flags.cy, cy);
-        assert_eq!(cpu.flags.ac, ac);
     }
 
     fn get_random_number(max: u16) -> u16 {
