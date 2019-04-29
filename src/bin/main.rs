@@ -7,7 +7,7 @@ fn main() {
 
     let mut cpu = Cpu::new();
     read_space_invaders_into_memory(&mut cpu);
-    for _ in 0x0..0x15 {
+    for _ in 0x0..0x55 {
         cpu.execute_opcode();
     }
 }

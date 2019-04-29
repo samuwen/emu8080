@@ -37,9 +37,11 @@ impl Cpu {
         }
     }
 
-    pub fn execute_opcode(mut self) {
+    pub fn execute_opcode(&mut self) {
         let code = self.memory.ram[usize::from(self.pc)];
         let op = Opcode::new(code);
+        debug!("{}", op.operation_name);
+        let mut changed_pc = false;
         match op.code {
             0x00 | 0x08 | 0x10 | 0x18 | 0x20 | 0x28 | 0x30 | 0x38 | 0xCB | 0xD9 | 0xDD | 0xED
             | 0xFD => {}
@@ -81,10 +83,16 @@ impl Cpu {
             0xA8...0xAF => self.xra_operation(op.code),
             0xB0...0xB7 => self.ora_operation(op.code),
             0xB8...0xBF => self.cmp_operation(op.code),
-            0xC0 | 0xC8 | 0xC9 | 0xD0 | 0xD8 | 0xE0 | 0xE8 | 0xF0 | 0xF8 => self.do_return(op.code),
+            0xC0 | 0xC8 | 0xC9 | 0xD0 | 0xD8 | 0xE0 | 0xE8 | 0xF0 | 0xF8 => {
+                changed_pc = self.do_return(op.code)
+            }
             0xC1 | 0xD1 | 0xE1 | 0xF1 => self.pop_operation(op.code),
-            0xC2 | 0xC3 | 0xCA | 0xD2 | 0xDA | 0xE2 | 0xEA | 0xF2 | 0xFA => self.do_jump(op.code),
-            0xC4 | 0xCC | 0xCD | 0xD4 | 0xDC | 0xE4 | 0xEC | 0xF4 | 0xFC => self.do_call(op.code),
+            0xC2 | 0xC3 | 0xCA | 0xD2 | 0xDA | 0xE2 | 0xEA | 0xF2 | 0xFA => {
+                changed_pc = self.do_jump(op.code)
+            }
+            0xC4 | 0xCC | 0xCD | 0xD4 | 0xDC | 0xE4 | 0xEC | 0xF4 | 0xFC => {
+                changed_pc = self.do_call(op.code)
+            }
             0xC5 | 0xD5 | 0xE5 | 0xF5 => self.push_operation(op.code),
             0xC6 => self.adi(),
             0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => self.rst_operation(op.code),
@@ -104,7 +112,9 @@ impl Cpu {
             0xFB => self.enable_interrupts(),
             0xFE => self.cpi(),
         }
-        self.pc += 1;
+        if !changed_pc {
+            self.pc += 1;
+        }
     }
 
     #[inline]
@@ -535,15 +545,17 @@ impl Cpu {
         // not sure how to implement yet
     }
 
-    fn jump_operation(&mut self, true_condition: bool) {
+    fn jump_operation(&mut self, true_condition: bool) -> bool {
         if true_condition {
             self.pc = self.get_memory_reference().into();
+            true
         } else {
-            self.pc += 2
+            self.pc += 2;
+            false
         }
     }
 
-    fn do_jump(&mut self, code: u8) {
+    fn do_jump(&mut self, code: u8) -> bool {
         self.jump_operation(match code {
             0xC2 => !self.flags.z,
             0xC3 => true,
@@ -558,17 +570,19 @@ impl Cpu {
         })
     }
 
-    fn call_subroutine(&mut self, true_condition: bool) {
+    fn call_subroutine(&mut self, true_condition: bool) -> bool {
         if true_condition {
             let mem_ref = self.get_memory_reference();
             self.push_to_stack(self.pc.into());
             self.pc = mem_ref.into();
+            true
         } else {
-            self.pc += 2
+            self.pc += 2;
+            false
         }
     }
 
-    fn do_call(&mut self, code: u8) {
+    fn do_call(&mut self, code: u8) -> bool {
         self.call_subroutine(match code {
             0xC4 => !self.flags.z,
             0xCC => self.flags.z,
@@ -583,14 +597,16 @@ impl Cpu {
         })
     }
 
-    fn return_from_subroutine(&mut self, true_condition: bool) {
+    fn return_from_subroutine(&mut self, true_condition: bool) -> bool {
         if true_condition {
             let (msb, lsb) = self.pop_off_stack();
             self.pc = self.get_pair_value(msb, lsb).into();
+            return true;
         }
+        false
     }
 
-    fn do_return(&mut self, code: u8) {
+    fn do_return(&mut self, code: u8) -> bool {
         self.return_from_subroutine(match code {
             0xC0 => !self.flags.z,
             0xC8 => self.flags.z,
