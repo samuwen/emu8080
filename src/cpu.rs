@@ -9,6 +9,7 @@ use memory::Memory;
 use opcode::Opcode;
 use pointers::Pointer;
 use registers::Register;
+use std::fmt;
 
 #[derive(Clone, Copy, Default)]
 pub struct Cpu {
@@ -37,10 +38,13 @@ impl Cpu {
         }
     }
 
-    pub fn execute_opcode(&mut self) {
+    pub fn execute_opcode(&mut self, count: u64) {
         let code = self.memory.ram[usize::from(self.pc)];
-        let op = Opcode::new(code);
-        debug!("{}", op.operation_name);
+        let mut op = Opcode::new(code);
+        let mem_ref = self.get_memory_reference();
+        op.next_bytes = mem_ref;
+        debug!("{:?}", self);
+        debug!("{:?}      | {}\n", op, count);
         let mut changed_pc = false;
         match op.code {
             0x00 | 0x08 | 0x10 | 0x18 | 0x20 | 0x28 | 0x30 | 0x38 | 0xCB | 0xD9 | 0xDD | 0xED
@@ -97,9 +101,9 @@ impl Cpu {
             0xC6 => self.adi(),
             0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => self.rst_operation(op.code),
             0xCE => self.aci(),
-            0xD3 => unimplemented!(), // Contents of cpu.a are sent to io device.
+            0xD3 => self.output(), // Contents of cpu.a are sent to io device.
             0xD6 => self.sui(),
-            0xDB => unimplemented!(), // Contents of a device are loaded into cpu.a
+            0xDB => self.input(), // Contents of a device are loaded into cpu.a
             0xDE => self.sbi(),
             0xE3 => self.xthl(),
             0xE6 => self.ani(),
@@ -165,6 +169,14 @@ impl Cpu {
     #[inline]
     fn sets_sign_flag(&mut self, val: &u8) -> bool {
         (*val & 0x80) == 0x80
+    }
+
+    fn input(&mut self) {
+        // receive data byte and assign it to cpu.a
+    }
+
+    fn output(&mut self) {
+        // send cpu.a to peripheral device.
     }
 
     fn addition(&mut self, val: u8) {
@@ -276,10 +288,9 @@ impl Cpu {
                 self.h = val2;
             }
             0x31 => {
-                let v: u16 = u16::from(val2) | (u16::from(val1) >> 8);
-                self.sp = v.into();
+                self.sp = self.get_memory_reference().into();
             }
-            _ => panic!("Bug exists in opcode routing operation."),
+            _ => panic!("Bug in opcode routing."),
         }
         self.pc += 2;
     }
@@ -288,7 +299,7 @@ impl Cpu {
         let mem_ref = match code {
             0x02 => self.get_reg_pair_value(self.b, self.c),
             0x12 => self.get_reg_pair_value(self.d, self.e),
-            _ => panic!("Bug exists in opcode routing operation."),
+            _ => panic!("Bug in opcode routing."),
         };
         self.memory.ram[mem_ref as usize] = self.a.into();
     }
@@ -315,7 +326,7 @@ impl Cpu {
                 let result = val.wrapping_add(1);
                 self.sp = result.into();
             }
-            _ => panic!("Bug exists in opcode routing"),
+            _ => panic!("Bug in opcode routing"),
         }
     }
 
@@ -405,8 +416,6 @@ impl Cpu {
             }
             _ => panic!("Bug exists in opcode routing"),
         }
-        self.sp += 2;
-        self.pc += 2;
     }
 
     fn push_operation(&mut self, code: u8) {
@@ -542,7 +551,7 @@ impl Cpu {
     }
 
     fn hlt(&mut self) {
-        // not sure how to implement yet
+        panic!("Halt called.");
     }
 
     fn jump_operation(&mut self, true_condition: bool) -> bool {
@@ -573,7 +582,7 @@ impl Cpu {
     fn call_subroutine(&mut self, true_condition: bool) -> bool {
         if true_condition {
             let mem_ref = self.get_memory_reference();
-            self.push_to_stack(self.pc.into());
+            self.push_to_stack((self.pc + 3).into());
             self.pc = mem_ref.into();
             true
         } else {
@@ -884,6 +893,16 @@ fn logical_xor(val: u8, operand: u8) -> u8 {
     val ^ operand
 }
 
+impl fmt::Debug for Cpu {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "pc: {:4} sp: {:4} | a:{:2} bc:{:2}{:2} de:{:2}{:2} hl:{:2}{:2}",
+            self.pc, self.sp, self.a, self.b, self.c, self.d, self.e, self.h, self.l
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -925,15 +944,17 @@ mod tests {
     fn test_lxi_operation() {
         let mut cpu = Cpu::new();
         let opcode = 0x11;
-        let rand_addr = 0x103;
+        let rand_addr: usize = get_random_number(0xFFFF) as usize;
+        let reg_val_1: u8 = get_random_number(0xFF) as u8;
+        let reg_val_2: u8 = get_random_number(0xFF) as u8;
         cpu.pc = (rand_addr as u16).into();
         cpu.memory.ram[rand_addr] = opcode;
-        cpu.memory.ram[rand_addr + 1] = 0x3;
-        cpu.memory.ram[rand_addr + 2] = 0x1;
+        cpu.memory.ram[rand_addr + 1] = reg_val_1;
+        cpu.memory.ram[rand_addr + 2] = reg_val_2;
         cpu.lxi_operation(opcode);
 
-        assert_eq!(cpu.d, 0x1);
-        assert_eq!(cpu.e, 0x3);
+        assert_eq!(cpu.d, reg_val_2);
+        assert_eq!(cpu.e, reg_val_1);
     }
 
     #[test]
@@ -982,11 +1003,15 @@ mod tests {
     #[test]
     fn test_mvi_operation() {
         let mut cpu = Cpu::new();
-        cpu.d = (0xF4 as u8).into();
-        cpu.memory.ram[0x1] = 0x36;
+        let pc = get_random_number(0xFFFF);
+        let old_val = get_random_number(0xFF) as u8;
+        let new_val = get_random_number(0xFF) as u8;
+        cpu.pc = pc.into();
+        cpu.memory.ram[(pc + 1) as usize] = new_val;
+        cpu.d = old_val.into();
         cpu.mvi_operation(0x16);
 
-        assert_eq!(cpu.d, 0x36);
+        assert_eq!(cpu.d, new_val);
     }
 
     #[test]
@@ -1313,11 +1338,6 @@ mod tests {
     }
 
     #[test]
-    fn test_hlt() {
-        unimplemented!()
-    }
-
-    #[test]
     fn test_mov_b() {
         let mut cpu = Cpu::new();
         cpu.c = 0x23u8.into();
@@ -1382,15 +1402,16 @@ mod tests {
         let mut cpu = Cpu::new();
         let pc = get_random_number(0xFFFF);
         let sp = get_random_number(0xFFFF);
+        let mem_val_1 = get_random_number(0xFF) as u8;
+        let mem_val_2 = get_random_number(0xFF) as u8;
+        let concat = ((mem_val_2 as u16) << 8) | mem_val_1 as u16;
         cpu.pc = pc.into();
         cpu.sp = sp.into();
-        cpu.memory.ram[(pc + 2) as usize] = 0x6E;
-        cpu.memory.ram[(pc + 1) as usize] = 0x0D;
-        cpu.memory.ram[(sp + 1) as usize] = 0x33;
-        cpu.memory.ram[(sp + 2) as usize] = 0xA9;
+        cpu.memory.ram[(pc + 2) as usize] = mem_val_2;
+        cpu.memory.ram[(pc + 1) as usize] = mem_val_1;
         cpu.call_subroutine(true);
 
-        assert_eq!(cpu.pc, 0x6E0D);
+        assert_eq!(cpu.pc, concat);
         assert_eq!(cpu.sp, sp - 2);
     }
 

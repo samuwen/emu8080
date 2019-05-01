@@ -1,3 +1,4 @@
+use std::fmt;
 use std::ops::{Add, AddAssign, BitAnd, Sub, SubAssign};
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -74,5 +75,11 @@ impl BitAnd<u16> for Pointer {
 
     fn bitand(self, other: u16) -> Pointer {
         Pointer { x: self.x & other }
+    }
+}
+
+impl fmt::Display for Pointer {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({:x})", self.x)
     }
 }

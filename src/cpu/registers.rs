@@ -1,4 +1,5 @@
 use super::Pointer;
+use std::fmt;
 
 #[derive(Clone, Copy, Default, Debug)]
 // Tuple struct
@@ -43,5 +44,11 @@ impl From<Register> for u16 {
 impl PartialEq<u8> for Register {
     fn eq(&self, other: &u8) -> bool {
         &self.0 == other
+    }
+}
+
+impl fmt::Display for Register {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({:x})", self.0)
     }
 }

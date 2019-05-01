@@ -7,8 +7,11 @@ fn main() {
 
     let mut cpu = Cpu::new();
     read_space_invaders_into_memory(&mut cpu);
-    for _ in 0x0..0x55 {
-        cpu.execute_opcode();
+    let limit_base = 49000;
+    let factor = 1;
+    let limit = limit_base * factor - (6 * (factor - 1));
+    for i in 0..limit {
+        cpu.execute_opcode(i);
     }
 }
 
@@ -25,3 +28,8 @@ fn read_space_invaders_into_memory(cpu: &mut Cpu) {
         cpu.load_rom_into_memory(0x7FF * i + i, &buffer);
     }
 }
+
+/*
+[2019-04-30T02:14:08Z DEBUG emu8080::cpu] (39) (0) (0) (1c) (0) (21) (0)
+[2019-04-30T02:14:08Z DEBUG emu8080::cpu] Opcode  CALL : cd |  1e6
+*/

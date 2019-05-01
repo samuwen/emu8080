@@ -3,11 +3,16 @@ use std::fmt;
 pub struct Opcode {
     pub code: u8,
     pub operation_name: String,
+    pub next_bytes: u16,
 }
 
 impl fmt::Debug for Opcode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Opcode  {:2x}:{:4}", self.code, self.operation_name,)
+        write!(
+            f,
+            "Opcode  {:4} : {:2x} | {:4x}",
+            self.operation_name, self.code, self.next_bytes
+        )
     }
 }
 
@@ -16,6 +21,7 @@ impl Opcode {
         Opcode {
             code: val,
             operation_name: opcode_name(val),
+            next_bytes: 0,
         }
     }
 }
@@ -33,6 +39,7 @@ fn opcode_name(val: u8) -> String {
         0x07 => "RLC",
         0x09 | 0x19 | 0x29 | 0x39 => "DAD",
         0x0A | 0x1A => "LDAX",
+        0x0B | 0x1B | 0x2B | 0x3B => "DCX",
         0x0F => "RRC",
         0x17 => "RAL",
         0x1F => "RAR",
@@ -97,6 +104,6 @@ fn opcode_name(val: u8) -> String {
         0xFB => "EI",
         0xFC => "CM",
         0xFE => "CPI",
-        _ => panic!("How is babby formed"),
+        _ => panic!("How is babby formed {:x}", val),
     })
 }
