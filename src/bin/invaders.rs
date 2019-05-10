@@ -76,12 +76,12 @@ impl Cabinet {
 
     fn key_up(&mut self, key: Keycode) {
         match key {
-            Keycode::A => self.p1 ^= 0x20,
-            Keycode::Kp4 => self.p2 ^= 0x20,
-            Keycode::D => self.p1 ^= 0x40,
-            Keycode::Kp6 => self.p2 ^= 0x40,
-            Keycode::Space => self.p1 ^= 0x10,
-            Keycode::Kp0 => self.p2 ^= 0x10,
+            Keycode::A => self.p1 &= 0xDF,
+            Keycode::Kp4 => self.p2 &= 0xDF,
+            Keycode::D => self.p1 &= 0xBF,
+            Keycode::Kp6 => self.p2 &= 0xBF,
+            Keycode::Space => self.p1 &= 0xEF,
+            Keycode::Kp0 => self.p2 &= 0xEF,
             _ => {
                 // do nothing
             }
