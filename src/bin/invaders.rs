@@ -2,6 +2,7 @@ use emu8080::Cpu;
 use emu8080::EventSignal;
 
 use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
 use sdl2::EventPump;
 use std::fs::File;
 use std::io::prelude::*;
@@ -25,8 +26,8 @@ struct Cabinet {
 impl Cabinet {
     fn new() -> Self {
         Cabinet {
-            p0: 0,
-            p1: 0,
+            p0: 0xE,
+            p1: 0x8,
             p2: 0,
             p3: 0,
             p4: 0,
@@ -58,6 +59,34 @@ impl Cabinet {
             _ => panic!("Invalid port selection"),
         }
     }
+
+    fn key_down(&mut self, key: Keycode) {
+        match key {
+            Keycode::A => self.p1 |= 0x20,
+            Keycode::Kp4 => self.p2 |= 0x20,
+            Keycode::D => self.p1 |= 0x40,
+            Keycode::Kp6 => self.p2 |= 0x40,
+            Keycode::Space => self.p1 |= 0x10,
+            Keycode::Kp0 => self.p2 |= 0x10,
+            _ => {
+                // do nothing
+            }
+        }
+    }
+
+    fn key_up(&mut self, key: Keycode) {
+        match key {
+            Keycode::A => self.p1 ^= 0x20,
+            Keycode::Kp4 => self.p2 ^= 0x20,
+            Keycode::D => self.p1 ^= 0x40,
+            Keycode::Kp6 => self.p2 ^= 0x40,
+            Keycode::Space => self.p1 ^= 0x10,
+            Keycode::Kp0 => self.p2 ^= 0x10,
+            _ => {
+                // do nothing
+            }
+        }
+    }
 }
 
 fn main() {
@@ -86,9 +115,8 @@ fn main() {
         .expect("window failed to init to canvas");
 
     loop {
-        if let EventSignal::Quit = handle_events(&cpu, &mut event_pump) {
-            return;
-        }
+        handle_events(&cpu, &mut cabinet, &mut event_pump);
+
         let op = cpu.get_current_opcode();
         match op.code {
             0xD3 => {
@@ -118,17 +146,19 @@ fn read_space_invaders_into_memory(cpu: &mut Cpu) {
     }
 }
 
-fn handle_events(cpu: &Cpu, event_pump: &mut EventPump) -> EventSignal {
+fn handle_events(cpu: &Cpu, cabinet: &mut Cabinet, event_pump: &mut EventPump) {
     for event in event_pump.poll_iter() {
         match event {
-            Event::Quit { .. } => {
-                return EventSignal::Quit;
-            }
-            // Event::KeyDown { keycode: Some(key) } => return MachineInputState::new(cpu),
+            Event::Quit { .. } => ::std::process::exit(0),
+            Event::KeyDown {
+                keycode: Some(key), ..
+            } => cabinet.key_down(key),
+            Event::KeyUp {
+                keycode: Some(key), ..
+            } => cabinet.key_up(key),
             _ => {
                 // do nothing
             }
         }
     }
-    EventSignal::DoNothing
 }
