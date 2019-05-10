@@ -38,13 +38,12 @@ impl Cpu {
         }
     }
 
-    pub fn execute_opcode(&mut self, count: u64) {
-        let code = self.memory.ram[usize::from(self.pc)];
-        let mut op = Opcode::new(code);
+    pub fn execute_opcode(&mut self) {
+        let mut op = self.get_current_opcode();
         let mem_ref = self.get_memory_reference();
         op.next_bytes = mem_ref;
-        debug!("{:?}", self);
-        debug!("{:?}      | {}\n", op, count);
+        // debug!("{:?}", self);
+        // debug!("{:?}      | {}\n", op, count);
         let mut changed_pc = false;
         match op.code {
             0x00 | 0x08 | 0x10 | 0x18 | 0x20 | 0x28 | 0x30 | 0x38 | 0xCB | 0xD9 | 0xDD | 0xED
@@ -101,9 +100,13 @@ impl Cpu {
             0xC6 => self.adi(),
             0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => self.rst_operation(op.code),
             0xCE => self.aci(),
-            0xD3 => self.output(), // Contents of cpu.a are sent to io device.
+            0xD3 => {
+                // handled elsewhere
+            }
             0xD6 => self.sui(),
-            0xDB => self.input(), // Contents of a device are loaded into cpu.a
+            0xDB => {
+                // handled elsewhere
+            }
             0xDE => self.sbi(),
             0xE3 => self.xthl(),
             0xE6 => self.ani(),
@@ -171,12 +174,12 @@ impl Cpu {
         (*val & 0x80) == 0x80
     }
 
-    fn input(&mut self) {
-        // receive data byte and assign it to cpu.a
+    pub fn input(&mut self, val: u8) {
+        self.a = val.into()
     }
 
-    fn output(&mut self) {
-        // send cpu.a to peripheral device.
+    pub fn output(&mut self) -> (u8, Register) {
+        (self.get_next_byte(), self.a)
     }
 
     fn addition(&mut self, val: u8) {
@@ -837,7 +840,7 @@ impl Cpu {
         (high_adr << 8) | low_adr
     }
 
-    fn get_next_byte(self) -> u8 {
+    pub fn get_next_byte(self) -> u8 {
         self.memory.ram[usize::from(self.pc + 1)]
     }
 
@@ -862,6 +865,11 @@ impl Cpu {
 
     fn return_split_values(val: u16) -> (u8, u8) {
         (((val & 0xFF00) >> 8) as u8, (val & 0xFF) as u8)
+    }
+
+    pub fn get_current_opcode(&mut self) -> Opcode {
+        let code = self.memory.ram[usize::from(self.pc)];
+        Opcode::new(code)
     }
 }
 
