@@ -1,12 +1,19 @@
 use emu8080::Cpu;
-use emu8080::EventSignal;
 
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use sdl2::pixels::Color;
+use sdl2::rect::Rect;
+use sdl2::render::Canvas;
+use sdl2::video::Window;
 use sdl2::EventPump;
 use std::fs::File;
 use std::io::prelude::*;
-use std::mem;
+use std::time::Duration;
+use std::time::Instant;
+
+const HEIGHT: u32 = 224;
+const WIDTH: u32 = 256;
 
 struct Cabinet {
     p0: u8,
@@ -26,8 +33,10 @@ struct Cabinet {
 impl Cabinet {
     fn new() -> Self {
         Cabinet {
-            p0: 0xE,
-            p1: 0x8,
+            // p0: 0xE,
+            p0: 0,
+            p1: 1,
+            // p1: 0x8,
             p2: 0,
             p3: 0,
             p4: 0,
@@ -56,7 +65,9 @@ impl Cabinet {
                 // sound stuff
             }
             4 => self.shift = (self.shift >> 8) | ((value as u16) << 8),
-            _ => panic!("Invalid port selection"),
+            _ => {
+                // do nothing
+            }
         }
     }
 
@@ -90,6 +101,10 @@ impl Cabinet {
 }
 
 fn main() {
+    const NANOS_PER_SECOND: u64 = 1_000_000_000;
+    const CPU_SPEED: u64 = 2_000_000;
+    const NANOS_PER_CYCLE: u64 = NANOS_PER_SECOND / CPU_SPEED;
+    const VIDEO_INTERRUPT_TIMER: Duration = Duration::from_nanos(16667);
     env_logger::init();
     let sdl = sdl2::init().expect("Sdl failed to init. Big mistake.");
 
@@ -104,7 +119,7 @@ fn main() {
     let audio = sdl.audio().unwrap();
     let video = sdl.video().unwrap();
     let window = video
-        .window("Insert Rom Name", 224 * 2, 256 * 2)
+        .window("Invaders from Space", HEIGHT, WIDTH)
         .build()
         .unwrap();
     let mut canvas = window
@@ -114,21 +129,45 @@ fn main() {
         .build()
         .expect("window failed to init to canvas");
 
-    loop {
+    let mut last_interrupt = Instant::now();
+    let mut last_cycle = Instant::now();
+    let mut cycles_elapsed: u64 = 0;
+
+    let mut count = 0;
+
+    'running: loop {
         handle_events(&cpu, &mut cabinet, &mut event_pump);
 
+        // if Instant::now().duration_since(last_interrupt) >= VIDEO_INTERRUPT_TIMER {
+        //     if cpu.interrupts_enabled() {
+        //         last_interrupt = Instant::now();
+        //     }
+        // } else {
+        // let nanos_elapsed = Duration::from_nanos(cycles_elapsed * NANOS_PER_CYCLE);
+        // if Instant::now().duration_since(last_cycle) > nanos_elapsed {
         let op = cpu.get_current_opcode();
         match op.code {
             0xD3 => {
                 let (byte, register) = cpu.output();
                 cabinet.output(byte, register.into());
+                cpu.increment_pc(1);
             }
             0xDB => {
                 let input = cabinet.input(cpu.get_next_byte());
                 cpu.input(input);
+                cpu.increment_pc(1);
             }
-            _ => cpu.execute_opcode(),
+            _ => {
+                cycles_elapsed += cpu.execute_opcode(&count) as u64;
+                last_cycle = Instant::now();
+            }
         }
+        // }
+        // }
+        if count > 50000 {
+            draw_to_screen(&mut cpu, &mut canvas);
+        }
+        count += 1;
     }
 }
 
@@ -149,7 +188,11 @@ fn read_space_invaders_into_memory(cpu: &mut Cpu) {
 fn handle_events(cpu: &Cpu, cabinet: &mut Cabinet, event_pump: &mut EventPump) {
     for event in event_pump.poll_iter() {
         match event {
-            Event::Quit { .. } => ::std::process::exit(0),
+            Event::Quit { .. }
+            | Event::KeyDown {
+                keycode: Some(Keycode::Escape),
+                ..
+            } => ::std::process::exit(0),
             Event::KeyDown {
                 keycode: Some(key), ..
             } => cabinet.key_down(key),
@@ -161,4 +204,28 @@ fn handle_events(cpu: &Cpu, cabinet: &mut Cabinet, event_pump: &mut EventPump) {
             }
         }
     }
+}
+
+fn draw_to_screen(cpu: &mut Cpu, canvas: &mut Canvas<Window>) {
+    let white = Color::RGB(255, 255, 255);
+    let black = Color::RGB(0, 0, 0);
+    canvas.clear();
+    let display_buffer = cpu.get_video_memory();
+    let shift_end = 7u8;
+    for (i, byte) in display_buffer.iter().enumerate() {
+        let y = (i * 8) / (WIDTH as usize + 1);
+
+        for shift in 0..shift_end {
+            let x = ((i * 8) % WIDTH as usize) + shift as usize;
+
+            if (byte >> shift) & 1 == 0 {
+                canvas.set_draw_color(black);
+            } else {
+                canvas.set_draw_color(white);
+            }
+            let rect = Rect::new(x as i32, y as i32, 10, 10);
+            canvas.fill_rect(rect).unwrap();
+        }
+    }
+    canvas.present()
 }

@@ -38,12 +38,12 @@ impl Cpu {
         }
     }
 
-    pub fn execute_opcode(&mut self) {
+    pub fn execute_opcode(&mut self, count: &u128) -> u8 {
         let mut op = self.get_current_opcode();
         let mem_ref = self.get_memory_reference();
         op.next_bytes = mem_ref;
-        // debug!("{:?}", self);
-        // debug!("{:?}      | {}\n", op, count);
+        debug!("{:?}", self);
+        debug!("{:?}      | {}\n", op, count);
         let mut changed_pc = false;
         match op.code {
             0x00 | 0x08 | 0x10 | 0x18 | 0x20 | 0x28 | 0x30 | 0x38 | 0xCB | 0xD9 | 0xDD | 0xED
@@ -122,6 +122,7 @@ impl Cpu {
         if !changed_pc {
             self.pc += 1;
         }
+        op.cycles
     }
 
     #[inline]
@@ -870,6 +871,18 @@ impl Cpu {
     pub fn get_current_opcode(&mut self) -> Opcode {
         let code = self.memory.ram[usize::from(self.pc)];
         Opcode::new(code)
+    }
+
+    pub fn interrupts_enabled(&mut self) -> bool {
+        self.interrupts_enabled
+    }
+
+    pub fn get_video_memory(&self) -> &[u8] {
+        &self.memory.ram[0x2400..0x4000]
+    }
+
+    pub fn increment_pc(&mut self, val: u8) {
+        self.pc += val.into();
     }
 }
 
